@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h3 class="mb-1">Patient Record</h3>
+      <p class="text-muted mb-0">Unique identifier: <strong>{{ patient.national_id }}</strong></p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to dashboard</a>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <strong>Name</strong>
+          <div>{{ patient.name }}</div>
+        </div>
+        <div class="col-md-6">
+          <strong>Patient ID</strong>
+          <div>{{ patient.national_id }}</div>
+        </div>
+        <div class="col-md-3">
+          <strong>Age</strong>
+          <div>{{ patient.age if patient.age is not none else '—' }}</div>
+        </div>
+        <div class="col-md-3">
+          <strong>Gender</strong>
+          <div>{{ patient.gender if patient.gender else '—' }}</div>
+        </div>
+        <div class="col-md-3">
+          <strong>Phone</strong>
+          <div>{{ patient.phone if patient.phone else '—' }}</div>
+        </div>
+        <div class="col-md-3">
+          <strong>Visit Type</strong>
+          <div>{{ patient.visit_type if patient.visit_type else 'New Visit' }}</div>
+        </div>
+        <div class="col-12">
+          <strong>Address</strong>
+          <div>{{ patient.address if patient.address else 'No address provided' }}</div>
+        </div>
+        <div class="col-12">
+          <strong>Registered</strong>
+          <div>{{ patient.registration_date.strftime('%Y-%m-%d %H:%M') if patient.registration_date else '' }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
