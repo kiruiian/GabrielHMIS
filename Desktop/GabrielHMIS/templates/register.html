@@ -1,18 +1,27 @@
 {% extends 'base.html' %}
 
 {% block content %}
-  <h3>Register Patient</h3>
+  <div class="page-header">
+    <h3>Register Patient</h3>
+    <p class="text-muted">Capture patient demographics for the outpatient queue.</p>
+  </div>
   <form method="post" action="{{ url_for('register_patient') }}">
-    <div class="mb-3">
-      <label class="form-label">Name</label>
-      <input type="text" name="name" class="form-control" required>
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label class="form-label">First name</label>
+        <input type="text" name="first_name" class="form-control" required value="{{ request.args.get('first_name', '') }}">
+      </div>
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Other names</label>
+        <input type="text" name="other_names" class="form-control" value="{{ request.args.get('other_names', '') }}">
+      </div>
     </div>
     <div class="row">
-      <div class="col-md-4 mb-3">
+      <div class="col-md-3 mb-3">
         <label class="form-label">Age</label>
         <input type="number" name="age" class="form-control">
       </div>
-      <div class="col-md-4 mb-3">
+      <div class="col-md-3 mb-3">
         <label class="form-label">Gender</label>
         <select name="gender" class="form-select">
           <option value="">Select</option>
@@ -21,18 +30,18 @@
           <option>Other</option>
         </select>
       </div>
-      <div class="col-md-4 mb-3">
+      <div class="col-md-6 mb-3">
         <label class="form-label">Phone</label>
         <input type="text" name="phone" class="form-control">
       </div>
     </div>
     <div class="mb-3">
       <label class="form-label">National ID</label>
-      <input type="text" name="national_id" class="form-control" required placeholder="Enter national ID">
+      <input type="text" name="national_id" class="form-control" required placeholder="Enter national ID" value="{{ national_id or '' }}">
     </div>
     <div class="mb-3">
       <label class="form-label">Address</label>
-      <textarea name="address" class="form-control" rows="3"></textarea>
+      <textarea name="address" class="form-control" rows="1"></textarea>
     </div>
     <div class="mb-3">
       <label class="form-label">Visit Type</label>

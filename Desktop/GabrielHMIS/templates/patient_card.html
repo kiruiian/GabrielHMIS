@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3>Patient Card - {{ patient.full_name }}</h3>
+            <p class="text-muted mb-0">
+                ID: <strong>{{ patient.national_id }}</strong> • 
+                Age: {{ patient.age }} • {{ patient.gender }}
+            </p>
+        </div>
+        <a href="{{ url_for('patient_details', national_id=patient.national_id) }}" class="btn btn-outline-secondary">← Back to Profile</a>
+    </div>
+
+    <ul class="nav nav-tabs mb-4" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#vitals">Vitals</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#notes">Clinical Notes</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#referrals">Referrals</button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+
+        <!-- ==================== VITALS ==================== -->
+        <div class="tab-pane fade show active" id="vitals">
+            {% if user_role in ['nurse', 'triage', 'doctor', 'records', 'admin'] %}
+            <div class="row">
+                <div class="col-lg-5">
+                    <div class="card">
+                        <div class="card-header">Record New Vitals</div>
+                        <div class="card-body">
+                            <form method="POST">
+                                <input type="hidden" name="action" value="vitals">
+                                <div class="row g-3">
+                                    <div class="col-6">
+                                        <label class="form-label">Blood Pressure</label>
+                                        <input type="text" name="bp" class="form-control" placeholder="120/80">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label">Temperature (°C)</label>
+                                        <input type="number" step="0.1" name="temperature" class="form-control">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label">Pulse (bpm)</label>
+                                        <input type="number" name="pulse" class="form-control">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label">SpO₂ (%)</label>
+                                        <input type="number" name="oxygen_sat" class="form-control">
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">Notes</label>
+                                        <textarea name="vital_notes" class="form-control" rows="2"></textarea>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-success mt-3">Save Vitals</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-7">
+                    <h5>Previous Vitals</h5>
+                    {% if vitals %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>BP</th>
+                                    <th>Temp</th>
+                                    <th>Pulse</th>
+                                    <th>SpO2</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for v in vitals[:10] %}
+                                <tr>
+                                    <td>{{ v.timestamp.strftime('%d %b %H:%M') }}</td>
+                                    <td>{{ v.bp or '—' }}</td>
+                                    <td>{{ v.temperature or '—' }}</td>
+                                    <td>{{ v.pulse or '—' }}</td>
+                                    <td>{{ v.oxygen_sat or '—' }}</td>
+                                    <td>{{ v.notes|truncate(50) or '—' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted">No vitals recorded yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="alert alert-info">You don't have permission to view vitals.</div>
+            {% endif %}
+        </div>
+
+        <!-- ==================== CLINICAL NOTES ==================== -->
+        <div class="tab-pane fade" id="notes">
+            {% if user_role in ['nurse', 'doctor', 'records', 'admin'] %}
+            <div class="card mb-4">
+                <div class="card-header">Add Clinical Note</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="note">
+                        <textarea name="note" class="form-control" rows="4" placeholder="Write examination findings, diagnosis, treatment plan..." required></textarea>
+                        <button type="submit" class="btn btn-primary mt-3">Save Note</button>
+                    </form>
+                </div>
+            </div>
+
+            <h5>Previous Notes</h5>
+            {% if notes %}
+                {% for n in notes %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <small class="text-muted">{{ n.timestamp.strftime('%d %b %Y %H:%M') }} — {{ n.doctor }}</small>
+                        <p class="mt-2">{{ n.note }}</p>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-muted">No clinical notes yet.</p>
+            {% endif %}
+            {% else %}
+            <div class="alert alert-info">You don't have permission to view clinical notes.</div>
+            {% endif %}
+        </div>
+
+        <!-- ==================== REFERRALS ==================== -->
+        <div class="tab-pane fade" id="referrals">
+            <!-- You can put the referrals form here later -->
+            <p>Referrals section coming soon...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="container mt-4">
+    <h3>Start Visit</h3>
+    <p class="text-muted">Patient: <strong>{{ patient.name }}</strong> — ID: <strong>{{ patient.national_id }}</strong></p>
+
+    <form method="post" action="{{ url_for('start_visit', national_id=patient.national_id) }}">
+      <div class="row">
+        <div class="mb-3 col-md-6">
+          <label class="form-label">Payment method</label>
+          <select name="payment_method" class="form-select" required>
+            <option value="">Select payment method</option>
+            <option>SHA</option>
+            <option>SHA FFS</option>
+            <option>CASH PAYER</option>
+            <option>BROWNS PLANTATIONS</option>
+            <option>BRITAM</option>
+            <option>JUBILEE</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="mb-3 col-md-6">
+          <label class="form-label">Invoice / CR number (optional)</label>
+          <input type="text" name="invoice_number" class="form-control" placeholder="Invoice or CR number">
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Start Visit</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

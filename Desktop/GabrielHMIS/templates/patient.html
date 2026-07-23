@@ -6,7 +6,12 @@
       <h3 class="mb-1">Patient Record</h3>
       <p class="text-muted mb-0">Unique identifier: <strong>{{ patient.national_id }}</strong></p>
     </div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to dashboard</a>
+    <div>
+      <a class="btn btn-primary me-2" href="{{ url_for('start_visit', national_id=patient.national_id) }}">Start Visit</a>
+      <a class="btn btn-outline-secondary me-2" href="{{ url_for('edit_patient', national_id=patient.national_id) }}">Edit</a>
+      <a class="btn btn-outline-secondary me-2" href="{{ url_for('patient_records', national_id=patient.national_id) }}">Records</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to dashboard</a>
+    </div>
   </div>
 
   <div class="card shadow-sm">
@@ -14,7 +19,7 @@
       <div class="row g-3">
         <div class="col-md-6">
           <strong>Name</strong>
-          <div>{{ patient.name }}</div>
+          <div>{{ patient.full_name }}</div>
         </div>
         <div class="col-md-6">
           <strong>Patient ID</strong>

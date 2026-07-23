@@ -11,30 +11,20 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
       <h3 class="mb-1">Dashboard</h3>
-      <p class="text-muted mb-0">Search patients quickly and click a row for a quick preview.</p>
-    </div>
-    <div class="text-end">
-      <div>Patients: <strong>{{ patients_count }}</strong></div>
-      <div class="text-muted small">Showing {{ patients|length }} on this page</div>
+      <p class="text-muted mb-0">Overview of today&#39;s activity.</p>
     </div>
   </div>
 
   <div class="card shadow-sm mb-4 border-0 bg-light">
     <div class="card-body">
       <div class="row g-3 text-center align-items-center">
-        <div class="col-md-4">
-          <div class="p-2">
-            <div class="text-muted small">Total patients</div>
-            <div class="fs-3 fw-bold text-primary" id="totalPatients">{{ patients_count }}</div>
-          </div>
-        </div>
-        <div class="col-md-4">
+        <div class="col-md-6">
           <div class="p-2">
             <div class="text-muted small">Registered today</div>
             <div class="fs-3 fw-bold text-success" id="todayPatients">0</div>
           </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-6">
           <div class="p-2">
             <div class="text-muted small">Revisits</div>
             <div class="fs-3 fw-bold text-info" id="revisitPatients">0</div>
@@ -83,206 +73,18 @@
     </div>
   </div>
 
-  <form class="row g-2 mb-4" method="get" action="{{ url_for('dashboard') }}" id="searchForm">
-    <div class="col-md-8">
-      <input type="search" name="q" id="searchInput" class="form-control" placeholder="Search by patient ID, name, or phone" value="{{ q }}">
-    </div>
-    <div class="col-md-4">
-      <button class="btn btn-outline-primary">Search</button>
-      <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Clear</a>
-    </div>
-  </form>
-  <p class="text-muted small mb-4">Use the patient ID as the unique identifier to open a full record.</p>
-
-  {% if patients %}
-    <div class="table-responsive">
-      <table class="table table-striped align-middle">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Age</th>
-            <th>Gender</th>
-            <th>Phone</th>
-            <th>Visit</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="patientTableBody">
-          {% for p in patients %}
-            <tr class="patient-row"
-                data-name="{{ p.name }}"
-                data-id="{{ p.patient_id }}"
-                data-age="{{ p.age if p.age is not none else '—' }}"
-                data-gender="{{ p.gender if p.gender else '—' }}"
-                data-phone="{{ p.phone if p.phone else '—' }}"
-                data-address="{{ p.address if p.address else 'No address provided' }}"
-                data-visit="{{ p.visit_type if p.visit_type else 'New Visit' }}"
-                data-registered="{{ p.registration_date.strftime('%Y-%m-%d %H:%M') if p.registration_date else '' }}">
-              <td>{{ p.national_id }}</td>
-              <td>{{ p.name }}</td>
-              <td>{{ p.age if p.age is not none else '—' }}</td>
-              <td>{{ p.gender if p.gender else '—' }}</td>
-              <td>{{ p.phone if p.phone else '—' }}</td>
-              <td>
-                <span class="badge {{ 'bg-success' if p.visit_type == 'Revisit' else 'bg-primary' }}">
-                  {{ p.visit_type if p.visit_type else 'New Visit' }}
-                </span>
-              </td>
-              <td>
-                <div class="d-flex gap-2">
-                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('patient_details', national_id=p.national_id) }}">Open</a>
-                  <button class="btn btn-sm btn-outline-secondary copy-btn" type="button" data-id="{{ p.national_id }}">Copy ID</button>
-                </div>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="alert alert-light border mt-3" id="noResults" style="display: none;">
-      No patients match your current search.
-    </div>
-
-    <div class="card shadow-sm mt-4 preview-card">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-start">
-          <div>
-            <h5 class="card-title mb-1" id="detailName">Select a patient</h5>
-            <p class="text-muted mb-0" id="detailSubtitle">Click a patient row to preview details here.</p>
-          </div>
-          <div class="d-flex gap-2 align-items-center">
-            <span class="badge bg-primary" id="detailBadge">Preview</span>
-            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('register_patient') }}">Register new</a>
-          </div>
-        </div>
-        <div class="row mt-3 g-3">
-          <div class="col-md-3"><strong>ID</strong><div id="detailId">—</div></div>
-          <div class="col-md-3"><strong>Age</strong><div id="detailAge">—</div></div>
-          <div class="col-md-3"><strong>Gender</strong><div id="detailGender">—</div></div>
-          <div class="col-md-3"><strong>Phone</strong><div id="detailPhone">—</div></div>
-          <div class="col-12"><strong>Address</strong><div id="detailAddress">—</div></div>
-          <div class="col-12"><strong>Visit Type</strong><div id="detailVisit">—</div></div>
-          <div class="col-12"><strong>Registered</strong><div id="detailRegistered">—</div></div>
-        </div>
-      </div>
-    </div>
-  {% else %}
-    <div class="alert alert-light border">
-      <strong>No patients found.</strong>
-      <div class="text-muted">Try a different search or register a new patient to get started.</div>
-    </div>
-  {% endif %}
-
   <script>
-    const searchInput = document.getElementById('searchInput');
-    const totalPatients = document.getElementById('totalPatients');
     const todayPatients = document.getElementById('todayPatients');
     const revisitPatients = document.getElementById('revisitPatients');
     const newVisitCount = document.getElementById('newVisitCount');
     const revisitComparisonCount = document.getElementById('revisitComparisonCount');
     const newVisitBar = document.getElementById('newVisitBar');
     const revisitBar = document.getElementById('revisitBar');
-    const rows = Array.from(document.querySelectorAll('.patient-row'));
-    const noResults = document.getElementById('noResults');
-    const detailName = document.getElementById('detailName');
-    const detailSubtitle = document.getElementById('detailSubtitle');
-    const detailBadge = document.getElementById('detailBadge');
-    const detailId = document.getElementById('detailId');
-    const detailAge = document.getElementById('detailAge');
-    const detailGender = document.getElementById('detailGender');
-    const detailPhone = document.getElementById('detailPhone');
-    const detailAddress = document.getElementById('detailAddress');
-    const detailVisit = document.getElementById('detailVisit');
-    const detailRegistered = document.getElementById('detailRegistered');
-
-    function updateDetails(row) {
-      if (!row) {
-        detailName.textContent = 'Select a patient';
-        detailSubtitle.textContent = 'Click a patient row to preview details here.';
-        detailBadge.textContent = 'Preview';
-        detailId.textContent = '—';
-        detailAge.textContent = '—';
-        detailGender.textContent = '—';
-        detailPhone.textContent = '—';
-        detailAddress.textContent = '—';
-        detailVisit.textContent = '—';
-        detailRegistered.textContent = '—';
-        return;
-      }
-
-      detailName.textContent = row.dataset.name || 'Unknown';
-      detailSubtitle.textContent = `Patient ID ${row.dataset.id || 'N/A'}`;
-      detailBadge.textContent = row.dataset.gender || 'Patient';
-      detailId.textContent = row.dataset.id || '—';
-      detailAge.textContent = row.dataset.age || '—';
-      detailGender.textContent = row.dataset.gender || '—';
-      detailPhone.textContent = row.dataset.phone || '—';
-      detailAddress.textContent = row.dataset.address || '—';
-      detailVisit.textContent = row.dataset.visit || '—';
-      detailRegistered.textContent = row.dataset.registered || '—';
-    }
-
-    function filterRows() {
-      const q = (searchInput?.value || '').trim().toLowerCase();
-      let visibleCount = 0;
-
-      rows.forEach((row) => {
-        const haystack = `${row.dataset.name} ${row.dataset.id} ${row.dataset.phone} ${row.dataset.gender}`.toLowerCase();
-        const match = !q || haystack.includes(q);
-        row.style.display = match ? '' : 'none';
-        if (match) visibleCount += 1;
-      });
-
-      if (noResults) {
-        noResults.style.display = visibleCount === 0 ? 'block' : 'none';
-      }
-    }
-
-    rows.forEach((row) => {
-      row.addEventListener('click', () => {
-        rows.forEach((item) => item.classList.remove('table-active'));
-        row.classList.add('table-active');
-        updateDetails(row);
-      });
-    });
-
-    document.querySelectorAll('.copy-btn').forEach((button) => {
-      button.addEventListener('click', async (event) => {
-        event.stopPropagation();
-        const id = button.dataset.id;
-        try {
-          await navigator.clipboard.writeText(id);
-          const original = button.textContent;
-          button.textContent = 'Copied!';
-          button.classList.remove('btn-outline-secondary');
-          button.classList.add('btn-success');
-          setTimeout(() => {
-            button.textContent = original;
-            button.classList.remove('btn-success');
-            button.classList.add('btn-outline-secondary');
-          }, 1200);
-        } catch (err) {
-          button.textContent = 'Copy failed';
-        }
-      });
-    });
-
-    if (searchInput) {
-      searchInput.addEventListener('input', filterRows);
-    }
-
-    if (rows.length) {
-      updateDetails(rows[0]);
-      rows[0].classList.add('table-active');
-    }
 
     async function refreshStats() {
       try {
         const response = await fetch('{{ url_for('dashboard_stats') }}');
         const data = await response.json();
-        if (totalPatients) totalPatients.textContent = data.total_patients;
         if (todayPatients) todayPatients.textContent = data.today_patients;
         if (revisitPatients) revisitPatients.textContent = data.revisit_patients;
         if (newVisitCount) newVisitCount.textContent = data.new_visit_patients;

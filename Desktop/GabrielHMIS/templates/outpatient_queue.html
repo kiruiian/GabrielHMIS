@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h3 class="mb-1">Outpatient Queue</h3>
+      <p class="text-muted mb-0">All queued outpatient visits </p>
+    </div>
+    <div>
+      <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+      <a class="btn btn-primary" href="{{ url_for('patients') }}">Search Patients</a>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      {% if queue_entries %}
+        <div class="list-group">
+          {% for entry in queue_entries %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold">{{ entry.patient.name or entry.patient.full_name }}</div>
+                <div class="text-muted small">ID: {{ entry.patient.national_id }} • {{ entry.patient.phone or 'No phone' }}</div>
+                <div class="text-muted small">Queued at {{ entry.queued_at.strftime('%Y-%m-%d %H:%M') }}</div>
+              </div>
+              <div class="text-end">
+                <div class="mb-2"><span class="badge bg-secondary">{{ entry.status|capitalize }}</span> {{ entry.doctor or 'Unassigned' }}</div>
+                <a class="btn btn-sm btn-outline-primary queue-open" href="#" data-queue-id="{{ entry.id }}">Open</a>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="text-muted">No queued outpatient visits at the moment.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('.queue-open').forEach((btn) => {
+      btn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        const queueId = btn.dataset.queueId;
+        let doctor = localStorage.getItem('currentDoctor');
+        if (!doctor) {
+          doctor = prompt('Enter your name to claim this patient:');
+          if (!doctor) return;
+          localStorage.setItem('currentDoctor', doctor);
+        }
+
+        try {
+          const res = await fetch(`/queue/claim/${queueId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ doctor })
+          });
+          const data = await res.json();
+          if (data.ok && data.patient_url) {
+            window.location = data.patient_url;
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Unable to claim this patient. Please try again.');
+        }
+      });
+    });
+  </script>
+{% endblock %}

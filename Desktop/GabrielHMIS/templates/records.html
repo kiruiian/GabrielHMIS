@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h3 class="mb-1">Records</h3>
+      <p class="text-muted mb-0">Search by national ID or phone number </p>
+    </div>
+    <div>
+      <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a class="btn btn-primary" href="{{ url_for('patients') }}">Patients</a>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <form method="get" action="{{ url_for('records') }}" class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">National ID</label>
+          <input type="text" name="national_id" class="form-control" placeholder="Search by national ID" value="{{ national_id or '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Phone</label>
+          <input type="text" name="phone" class="form-control" placeholder="Search by phone" value="{{ phone or '' }}">
+        </div>
+        <div class="col-md-4 text-end">
+          <button type="submit" class="btn btn-primary">Search Records</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    {% for patient in patients %}
+      <div class="col-md-6 col-lg-4">
+        <div class="card shadow-sm h-100">
+          <div class="card-body">
+            <div class="d-flex align-items-start gap-3 mb-3">
+              <div class="patient-avatar">
+                {% if patient.patient_image %}
+                  <img src="{{ url_for('static', filename=patient.patient_image) }}" alt="{{ patient.full_name }}">
+                {% else %}
+                  <div class="placeholder-avatar bg-secondary text-white d-flex align-items-center justify-content-center rounded-circle">
+                    {{ patient.display_first_name[:1] }}
+                  </div>
+                {% endif %}
+              </div>
+              <div>
+                <h5 class="mb-1">{{ patient.full_name }}</h5>
+                <div class="text-muted small">{{ patient.national_id }}</div>
+              </div>
+            </div>
+            <div class="mb-2">
+              <span class="badge bg-primary">{{ patient.visit_type or 'New Visit' }}</span>
+            </div>
+            <p class="small text-muted mb-3">{{ patient.phone or 'No phone' }} · {{ patient.age if patient.age is not none else 'Age N/A' }}</p>
+            <div class="d-grid gap-2">
+              <a class="btn btn-sm btn-outline-primary" href="{{ url_for('patient_records', national_id=patient.national_id) }}">Open Record</a>
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('start_visit', national_id=patient.national_id) }}">Start Visit</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endblock %}
