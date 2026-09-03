@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>St Gabriel Hospital</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+  </head>
+  <body>
+   <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
+  <div class="container-fluid">
+    <a class="navbar-brand d-flex align-items-center" href="{{ url_for('dashboard') }}">
+      <img src="{{ url_for('static', filename='images/logo.png') }}"
+       alt="St Gabriel Hospital"
+       height="40"
+       class="me-2">
+      <span>St Gabriel Hospital</span>
+    </a>
+
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav ms-auto gap-2">
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
+        {% if session.get('role') in ['receptionist', 'doctor', 'nurse', 'triage', 'records', 'admin'] %}
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('patients') }}">Patients</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('records') }}">Records</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('outpatient_queue') }}">Queue</a></li>
+        {% endif %}
+        {% if session.get('role') == 'admin' %}
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('register_staff') }}">Staff</a></li>
+        {% endif %}
+        <li class="nav-item d-flex align-items-center text-white-50 small px-2">{{ session.get('full_name') }}</li>
+        <li class="nav-item d-flex align-items-center">
+          <form method="post" action="{{ url_for('logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-light">Log out</button>
+          </form>
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+    <div class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>window.HMIS = { csrfToken: {{ csrf_token()|tojson }} };</script>
+  </body>
+</html>

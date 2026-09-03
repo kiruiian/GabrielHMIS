@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h3 class="mb-1">Outpatient Queue</h3>
+      <p class="text-muted mb-0">All queued outpatient visits </p>
+    </div>
+    <div>
+      <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+      <a class="btn btn-primary" href="{{ url_for('patients') }}">Search Patients</a>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      {% if queue_entries %}
+        <div class="list-group">
+          {% for entry in queue_entries %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold">{{ entry.patient.name or entry.patient.full_name }}</div>
+                <div class="text-muted small">ID: {{ entry.patient.national_id }} • {{ entry.patient.phone or 'No phone' }}</div>
+                <div class="text-muted small">Queued at {{ entry.queued_at.strftime('%Y-%m-%d %H:%M') }}</div>
+              </div>
+              <div class="text-end">
+                <div class="mb-2"><span class="badge bg-secondary">{{ entry.status|capitalize }}</span> {{ entry.doctor or 'Unassigned' }}</div>
+                {% if session.get('role') in ['doctor', 'admin'] %}
+                  <button class="btn btn-sm btn-outline-primary queue-open" type="button" data-queue-id="{{ entry.id }}">Claim and open</button>
+                {% elif session.get('role') in ['receptionist', 'records'] %}
+                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('queue_assign', queue_id=entry.id) }}">Assign</a>
+                {% else %}
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('patient_details', national_id=entry.patient.national_id) }}">View patient</a>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="text-muted">No queued outpatient visits at the moment.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    document.querySelectorAll('.queue-open').forEach((btn) => {
+      btn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        const queueId = btn.dataset.queueId;
+
+        try {
+          const res = await fetch(`/queue/claim/${queueId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': window.HMIS.csrfToken
+            },
+            body: '{}'
+          });
+          const data = await res.json();
+          if (data.ok && data.patient_url) {
+            window.location = data.patient_url;
+          } else {
+            alert(data.error || 'This queue entry could not be claimed.');
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Unable to claim this patient. Please try again.');
+        }
+      });
+    });
+  </script>
+{% endblock %}
