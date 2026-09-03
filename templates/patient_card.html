@@ -10,7 +10,20 @@
                 Age: {{ patient.age }} • {{ patient.gender }}
             </p>
         </div>
-        <a href="{{ url_for('patient_details', national_id=patient.national_id) }}" class="btn btn-outline-secondary">← Back to Profile</a>
+        <div class="d-flex gap-2">
+            {% if user_role in ['nurse', 'triage', 'admin'] %}
+            <form method="POST" action="{{ url_for('send_to_doctor', national_id=patient.national_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-primary">Send to Doctor</button>
+            </form>
+            {% endif %}
+            {% if user_role in ['doctor', 'admin'] %}
+            <a href="#referrals" class="btn btn-primary" data-bs-toggle="tab">Send to Lab</a>
+            <a href="#referrals" class="btn btn-success" data-bs-toggle="tab">Send to Pharmacy</a>
+            <a href="#referrals" class="btn btn-info" data-bs-toggle="tab">Send to Radiology</a>
+            {% endif %}
+            <a href="{{ url_for('patient_details', national_id=patient.national_id) }}" class="btn btn-outline-secondary">← Back to Profile</a>
+        </div>
     </div>
 
     <ul class="nav nav-tabs mb-4" role="tablist">
@@ -29,8 +42,9 @@
 
         <!-- ==================== VITALS ==================== -->
         <div class="tab-pane fade show active" id="vitals">
-            {% if user_role in ['nurse', 'triage', 'doctor', 'admin'] %}
+            {% if user_role in ['nurse', 'triage', 'doctor', 'records', 'admin'] %}
             <div class="row">
+                {% if user_role in ['nurse', 'triage', 'admin'] %}
                 <div class="col-lg-5">
                     <div class="card">
                         <div class="card-header">Record New Vitals</div>
@@ -77,9 +91,10 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
-                <div class="col-lg-7">
-                    <h5>Previous Vitals</h5>
+                <div class="{% if user_role in ['nurse', 'triage', 'admin'] %}col-lg-7{% else %}col-12{% endif %}">
+                    <h5>{% if user_role == 'doctor' %}Today's Vitals{% else %}Previous Vitals{% endif %}</h5>
                     {% if vitals %}
                     <div class="table-responsive">
                         <table class="table table-sm">
@@ -101,7 +116,7 @@
                                     <td>{{ v.temperature or '—' }}</td>
                                     <td>{{ v.pulse or '—' }}</td>
                                     <td>{{ v.oxygen_sat or '—' }}</td>
-                                    <td>{{ v.notes|truncate(50) or '—' }}</td>
+                                    <td>{{ (v.notes or '—')|truncate(50) }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -152,8 +167,54 @@
 
         <!-- ==================== REFERRALS ==================== -->
         <div class="tab-pane fade" id="referrals">
-            <!-- You can put the referrals form here later -->
-            <p>Referrals section coming soon...</p>
+            {% if user_role in ['doctor', 'admin'] %}
+            <div class="card mb-4">
+                <div class="card-header">Send Request</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="service_request">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Service</label>
+                                <select name="service_type" class="form-select" required>
+                                    <option value="">Choose service</option>
+                                    <option value="Lab">Lab</option>
+                                    <option value="Pharmacy">Pharmacy</option>
+                                    <option value="Radiology">Radiology</option>
+                                </select>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label">Details</label>
+                                <input type="text" name="service_description" class="form-control" placeholder="Tests, medicines, or imaging required" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary mt-3">Send Request</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            <h5>Service Requests</h5>
+            {% if requests %}
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead><tr><th>Date</th><th>Service</th><th>Details</th><th>Status</th></tr></thead>
+                    <tbody>
+                    {% for request in requests %}
+                    <tr>
+                        <td>{{ request.requested_at.strftime('%d %b %Y %H:%M') }}</td>
+                        <td>{{ request.service_type }}</td>
+                        <td>{{ request.description }}</td>
+                        <td>{{ request.status }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">No service requests yet.</p>
+            {% endif %}
         </div>
     </div>
 </div>

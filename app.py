@@ -9,7 +9,7 @@ import click
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -51,8 +51,9 @@ REGISTRATION_ROLES = {'receptionist', 'records'}
 VISIT_MANAGEMENT_ROLES = {'receptionist', 'records'}
 QUEUE_ASSIGNMENT_ROLES = {'receptionist', 'records'}
 CLINICAL_READ_ROLES = {'doctor', 'nurse', 'triage', 'records'}
-VITALS_ENTRY_ROLES = {'doctor', 'nurse', 'triage'}
+VITALS_ENTRY_ROLES = {'nurse', 'triage'}
 NOTE_ENTRY_ROLES = {'doctor', 'nurse'}
+SERVICE_REQUEST_ROLES = {'doctor'}
 PAYMENT_METHODS = {'SHA', 'SHA FFS', 'CASH PAYER', 'BROWNS PLANTATIONS', 'BRITAM', 'JUBILEE'}
 ACTIVE_QUEUE_STATUSES = {'queued', 'in_progress'}
 
@@ -114,7 +115,9 @@ class Visit(db.Model):
     visit_type = db.Column(db.String(20))
     payment_method = db.Column(db.String(80))
     invoice_number = db.Column(db.String(80))
+    status = db.Column(db.String(30), default='registered')  # registered → with_nurse → with_doctor → completed
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
 
     patient = db.relationship('Patient', backref=db.backref('visits', lazy=True))
 
@@ -124,7 +127,7 @@ class QueueEntry(db.Model):
     visit_id = db.Column(db.Integer, db.ForeignKey('visit.id'), nullable=False)
     patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
     doctor = db.Column(db.String(100))
-    status = db.Column(db.String(30), default='queued')
+    status = db.Column(db.String(30), default='queued')  # queued → with_nurse → with_doctor → completed
     queued_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     visit = db.relationship('Visit', backref=db.backref('queue_entry', uselist=False))
@@ -157,6 +160,22 @@ class ClinicalNote(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
     patient = db.relationship('Patient', backref=db.backref('clinical_notes', lazy=True, order_by=timestamp.desc()))
+class Consultation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    visit_id = db.Column(db.Integer, db.ForeignKey('visit.id'), nullable=False)
+    patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
+    
+    history = db.Column(db.Text)               # History of Presenting Illness
+    examination = db.Column(db.Text)           # Physical examination findings
+    diagnosis = db.Column(db.Text)             # Diagnosis
+    plan = db.Column(db.Text)                  # Management plan
+    
+    doctor_name = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    visit = db.relationship('Visit', backref=db.backref('consultation', uselist=False))
+    patient = db.relationship('Patient', backref=db.backref('consultations', lazy=True))
 
 
 class ServiceRequest(db.Model):
@@ -262,6 +281,16 @@ def parse_optional_number(raw_value, label, minimum=None, maximum=None, integer=
 def ensure_schema():
     with app.app_context():
         db.create_all()
+        visit_columns = {
+            row[1] for row in db.session.execute(text('PRAGMA table_info(visit)'))
+        }
+        if 'status' not in visit_columns:
+            db.session.execute(text(
+                "ALTER TABLE visit ADD COLUMN status VARCHAR(30) DEFAULT 'registered'"
+            ))
+        if 'completed_at' not in visit_columns:
+            db.session.execute(text('ALTER TABLE visit ADD COLUMN completed_at DATETIME'))
+        db.session.commit()
 
 with app.app_context():
     ensure_schema()
@@ -428,6 +457,25 @@ def patient_card(national_id):
             db.session.flush()
             audit('clinical_note_recorded', 'clinical_note', new_note.id, f'patient_id={patient.id}')
             flash('Clinical note saved!', 'success')
+        elif action == 'service_request':
+            if user_role not in SERVICE_REQUEST_ROLES and user_role != 'admin':
+                flash('Only doctors can request clinical services.', 'danger')
+                return redirect(url_for('patient_card', national_id=national_id))
+            service_type = request.form.get('service_type', '').strip()
+            if service_type not in {'Lab', 'Pharmacy', 'Radiology'}:
+                flash('Please choose a valid service.', 'danger')
+                return redirect(url_for('patient_card', national_id=national_id))
+            description = request.form.get('service_description', '').strip()
+            if not description:
+                flash('Please describe the requested service.', 'danger')
+                return redirect(url_for('patient_card', national_id=national_id))
+            db.session.add(ServiceRequest(
+                patient_id=patient.id,
+                service_type=service_type,
+                description=description,
+                requested_by=session.get('full_name', 'Doctor')
+            ))
+            flash(f'{service_type} request sent successfully.', 'success')
         else:
             flash('Unknown patient-card action.', 'danger')
             return redirect(url_for('patient_card', national_id=national_id))
@@ -435,7 +483,17 @@ def patient_card(national_id):
         db.session.commit()
         return redirect(url_for('patient_card', national_id=national_id))
 
-    vitals = VitalSigns.query.filter_by(patient_id=patient.id).order_by(VitalSigns.timestamp.desc()).limit(10).all()
+    user_role = session.get('role')
+    vitals_query = VitalSigns.query.filter_by(patient_id=patient.id)
+    if user_role == 'doctor':
+        today = datetime.utcnow().date()
+        today_start = datetime.combine(today, datetime.min.time())
+        tomorrow_start = today_start + timedelta(days=1)
+        vitals_query = vitals_query.filter(
+            VitalSigns.timestamp >= today_start,
+            VitalSigns.timestamp < tomorrow_start
+        )
+    vitals = vitals_query.order_by(VitalSigns.timestamp.desc()).limit(10).all()
     notes = ClinicalNote.query.filter_by(patient_id=patient.id).order_by(ClinicalNote.timestamp.desc()).limit(50).all()
     requests = ServiceRequest.query.filter_by(patient_id=patient.id).order_by(ServiceRequest.requested_at.desc()).limit(20).all()
 
@@ -444,12 +502,45 @@ def patient_card(national_id):
                          vitals=vitals, 
                          notes=notes, 
                          requests=requests,
-                         user_role=session.get('role'))   #role based access control in template
+                         user_role=user_role)
 @app.route('/outpatient-queue')
 @login_required(roles=CLINICAL_READ_ROLES | QUEUE_ASSIGNMENT_ROLES)
 def outpatient_queue():
-    queue_entries = QueueEntry.query.filter_by(status='queued').order_by(QueueEntry.queued_at.desc()).all()
+    visible_statuses = {'queued', 'with_doctor'} if session.get('role') in {'doctor', 'admin'} else {'queued'}
+    queue_entries = QueueEntry.query.filter(QueueEntry.status.in_(visible_statuses)).order_by(QueueEntry.queued_at.desc()).all()
     return render_template('outpatient_queue.html', queue_entries=queue_entries)
+
+@app.route('/patient/<national_id>/send-to-doctor', methods=['POST'])
+@login_required(roles={'nurse', 'triage'})
+def send_to_doctor(national_id):
+    patient = Patient.query.filter_by(national_id=national_id).first_or_404()
+    
+    # Get the latest visit
+    visit = Visit.query.filter_by(patient_id=patient.id).order_by(Visit.started_at.desc()).first()
+    
+    if not visit:
+        flash('No active visit found for this patient.', 'warning')
+        return redirect(url_for('patient_card', national_id=national_id))
+    
+    # Update visit status
+    visit.status = 'with_doctor'
+    
+    # Update or create queue entry
+    queue = QueueEntry.query.filter_by(visit_id=visit.id).first()
+    if queue:
+        queue.status = 'with_doctor'
+    else:
+        queue = QueueEntry(
+            visit_id=visit.id,
+            patient_id=patient.id,
+            status='with_doctor'
+        )
+        db.session.add(queue)
+    
+    db.session.commit()
+    
+    flash(f'Patient {patient.full_name} has been sent to the doctor.', 'success')
+    return redirect(url_for('patient_card', national_id=national_id))
 
 @app.route('/patients')
 @login_required(roles=PATIENT_ACCESS_ROLES)
@@ -562,7 +653,7 @@ def queue_assign(queue_id):
 @login_required(roles='doctor')
 def queue_claim(queue_id):
     queue = QueueEntry.query.get_or_404(queue_id)
-    if queue.status != 'queued':
+    if queue.status not in {'queued', 'with_doctor'}:
         return jsonify({'error': 'This queue entry is no longer available.'}), 409
     queue.doctor = session.get('full_name', session.get('username'))
     queue.status = 'in_progress'
