@@ -11,6 +11,12 @@
             </p>
         </div>
         <div class="d-flex gap-2">
+            {% if active_visit and user_role in ['doctor', 'admin'] %}
+            <form method="POST" action="{{ url_for('complete_visit', national_id=patient.national_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-success">Complete visit</button>
+            </form>
+            {% endif %}
             {% if user_role in ['nurse', 'triage', 'admin'] %}
             <form method="POST" action="{{ url_for('send_to_doctor', national_id=patient.national_id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -26,12 +32,22 @@
         </div>
     </div>
 
+    {% if active_visit %}
+    <div class="alert alert-info d-flex justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <strong>Active visit</strong>
+            <span class="ms-2">{{ active_visit.visit_type or 'Outpatient visit' }} started {{ active_visit.started_at.strftime('%d %b %Y at %H:%M') }}</span>
+        </div>
+        <span class="badge bg-info text-dark">{{ active_visit.status|replace('_', ' ')|title }}</span>
+    </div>
+    {% endif %}
+
     <ul class="nav nav-tabs mb-4" role="tablist">
         <li class="nav-item">
-            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#vitals">Vitals</button>
+            <button class="nav-link {% if user_role != 'doctor' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#vitals">Vitals</button>
         </li>
         <li class="nav-item">
-            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#notes">Clinical Notes</button>
+            <button class="nav-link {% if user_role == 'doctor' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#notes">Clinical Notes</button>
         </li>
         <li class="nav-item">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#referrals">Referrals</button>
@@ -41,7 +57,7 @@
     <div class="tab-content">
 
         <!-- ==================== VITALS ==================== -->
-        <div class="tab-pane fade show active" id="vitals">
+        <div class="tab-pane fade {% if user_role != 'doctor' %}show active{% endif %}" id="vitals">
             {% if user_role in ['nurse', 'triage', 'doctor', 'records', 'admin'] %}
             <div class="row">
                 {% if user_role in ['nurse', 'triage', 'admin'] %}
@@ -68,6 +84,10 @@
                                     <div class="col-6">
                                         <label class="form-label">SpO₂ (%)</label>
                                         <input type="number" name="oxygen_sat" class="form-control">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label">Pain score (1-10)</label>
+                                        <input type="number" name="pain_score" class="form-control" min="1" max="10" step="1" placeholder="1-10">
                                     </div>
                                     <div class="col-6">
                                         <label class="form-label">Respiration (breaths/min)</label>
@@ -105,6 +125,7 @@
                                     <th>Temp</th>
                                     <th>Pulse</th>
                                     <th>SpO2</th>
+                                    <th>Pain</th>
                                     <th>Notes</th>
                                 </tr>
                             </thead>
@@ -116,6 +137,7 @@
                                     <td>{{ v.temperature or '—' }}</td>
                                     <td>{{ v.pulse or '—' }}</td>
                                     <td>{{ v.oxygen_sat or '—' }}</td>
+                                    <td>{% if v.pain_score is not none %}{{ v.pain_score }}/10{% else %}—{% endif %}</td>
                                     <td>{{ (v.notes or '—')|truncate(50) }}</td>
                                 </tr>
                                 {% endfor %}
@@ -133,33 +155,70 @@
         </div>
 
         <!-- ==================== CLINICAL NOTES ==================== -->
-        <div class="tab-pane fade" id="notes">
+        <div class="tab-pane fade {% if user_role == 'doctor' %}show active{% endif %}" id="notes">
             {% if user_role in ['nurse', 'doctor', 'admin'] %}
-            <div class="card mb-4">
-                <div class="card-header">Add Clinical Note</div>
-                <div class="card-body">
+            <div class="clinical-notes-layout">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">New clinical note</h5>
+                    </div>
+                    <div class="card-body">
                     <form method="POST">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="action" value="note">
-                        <textarea name="note" class="form-control" rows="4" placeholder="Write examination findings, diagnosis, treatment plan..." required></textarea>
-                        <button type="submit" class="btn btn-primary mt-3">Save Note</button>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label fw-semibold" for="history">Subjective <span class="text-muted fw-normal">(patient history and symptoms)</span></label>
+                                <textarea id="history" name="history" class="form-control" rows="4" placeholder="Presenting complaint, history of presenting illness, relevant symptoms..."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label fw-semibold" for="examination">Objective <span class="text-muted fw-normal">(examination and results)</span></label>
+                                <textarea id="examination" name="examination" class="form-control" rows="4" placeholder="Examination findings, relevant observations, test results..."></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="diagnosis">Assessment <span class="text-muted fw-normal">(diagnosis)</span></label>
+                                <textarea id="diagnosis" name="diagnosis" class="form-control" rows="4" placeholder="Working or confirmed diagnosis..."></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="plan">Plan <span class="text-muted fw-normal">(management and follow-up)</span></label>
+                                <textarea id="plan" name="plan" class="form-control" rows="4" placeholder="Treatment, prescriptions, referrals, safety-netting, follow-up..."></textarea>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-end mt-3">
+                            <button type="submit" class="btn btn-primary">Save clinical note</button>
+                        </div>
                     </form>
-                </div>
-            </div>
-
-            <h5>Previous Notes</h5>
-            {% if notes %}
-                {% for n in notes %}
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <small class="text-muted">{{ n.timestamp.strftime('%d %b %Y %H:%M') }} — {{ n.doctor }}</small>
-                        <p class="mt-2">{{ n.note }}</p>
                     </div>
                 </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h5 class="mb-1">Previous notes</h5>
+                        <div class="text-muted small">Most recent clinical documentation first.</div>
+                    </div>
+                    <span class="badge bg-secondary">{{ notes|length }} shown</span>
+                </div>
+            {% if notes %}
+                {% for n in notes %}
+                <article class="card mb-3 clinical-note-card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <h6 class="mb-1">Clinical note</h6>
+                                <small class="text-muted">{{ n.timestamp.strftime('%d %b %Y at %H:%M') }} by {{ n.doctor }}</small>
+                            </div>
+                            <span class="badge bg-light text-dark border">Signed</span>
+                        </div>
+                        <div class="clinical-note-text">{{ n.note }}</div>
+                    </div>
+                </article>
                 {% endfor %}
             {% else %}
-                <p class="text-muted">No clinical notes yet.</p>
+                <div class="empty-state text-center py-5">
+                    <h6>No clinical notes yet</h6>
+                </div>
             {% endif %}
+            </div>
             {% else %}
             <div class="alert alert-info">You don't have permission to view clinical notes.</div>
             {% endif %}

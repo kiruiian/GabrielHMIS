@@ -78,3 +78,32 @@ body {
   height: 150px;
   font-size: 3rem;
 }
+
+.clinical-notes-layout {
+  max-width: 1100px;
+}
+
+.clinical-notes-layout .card-header {
+  background: #fbfcfe;
+  border-bottom-color: #e5eaf1;
+}
+
+.clinical-notes-layout textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.clinical-note-card {
+  border-left: 4px solid #0057b8;
+}
+
+.clinical-note-text {
+  white-space: pre-line;
+  color: #334155;
+  line-height: 1.65;
+}
+
+.empty-state {
+  border: 1px dashed #cbd5e1;
+  background: #fbfcfe;
+}

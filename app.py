@@ -142,6 +142,7 @@ class VitalSigns(db.Model):
     temperature = db.Column(db.Float)
     pulse = db.Column(db.Integer)
     respiration = db.Column(db.Integer)
+    pain_score = db.Column(db.Integer)
     weight = db.Column(db.Float)
     height = db.Column(db.Float)
     oxygen_sat = db.Column(db.Float)                 # SpO2
@@ -290,6 +291,11 @@ def ensure_schema():
             ))
         if 'completed_at' not in visit_columns:
             db.session.execute(text('ALTER TABLE visit ADD COLUMN completed_at DATETIME'))
+        vital_columns = {
+            row[1] for row in db.session.execute(text('PRAGMA table_info(vital_signs)'))
+        }
+        if 'pain_score' not in vital_columns:
+            db.session.execute(text('ALTER TABLE vital_signs ADD COLUMN pain_score INTEGER'))
         db.session.commit()
 
 with app.app_context():
@@ -415,6 +421,7 @@ def patient_card(national_id):
                 temperature = parse_optional_number(request.form.get('temperature'), 'Temperature', 30, 45)
                 pulse = parse_optional_number(request.form.get('pulse'), 'Pulse', 20, 250, integer=True)
                 respiration = parse_optional_number(request.form.get('respiration'), 'Respiration', 4, 80, integer=True)
+                pain_score = parse_optional_number(request.form.get('pain_score'), 'Pain score', 1, 10, integer=True)
                 weight = parse_optional_number(request.form.get('weight'), 'Weight', 0.5, 500)
                 height = parse_optional_number(request.form.get('height'), 'Height', 20, 300)
                 oxygen_sat = parse_optional_number(request.form.get('oxygen_sat'), 'Oxygen saturation', 0, 100)
@@ -428,6 +435,7 @@ def patient_card(national_id):
                 temperature=temperature,
                 pulse=pulse,
                 respiration=respiration,
+                pain_score=pain_score,
                 weight=weight,
                 height=height,
                 oxygen_sat=oxygen_sat,
@@ -443,9 +451,15 @@ def patient_card(national_id):
             if user_role not in NOTE_ENTRY_ROLES and user_role != 'admin':
                 flash('Only medical staff can write clinical notes.', 'danger')
                 return redirect(url_for('patient_card', national_id=national_id))
-            note = request.form.get('note', '').strip()
+            soap_sections = [
+                ('Subjective', request.form.get('history', '').strip()),
+                ('Objective', request.form.get('examination', '').strip()),
+                ('Assessment', request.form.get('diagnosis', '').strip()),
+                ('Plan', request.form.get('plan', '').strip()),
+            ]
+            note = '\n\n'.join(f'{label}:\n{content}' for label, content in soap_sections if content)
             if not note:
-                flash('Clinical note cannot be empty.', 'danger')
+                flash('Enter at least one section before saving the clinical note.', 'danger')
                 return redirect(url_for('patient_card', national_id=national_id))
 
             new_note = ClinicalNote(
@@ -496,13 +510,42 @@ def patient_card(national_id):
     vitals = vitals_query.order_by(VitalSigns.timestamp.desc()).limit(10).all()
     notes = ClinicalNote.query.filter_by(patient_id=patient.id).order_by(ClinicalNote.timestamp.desc()).limit(50).all()
     requests = ServiceRequest.query.filter_by(patient_id=patient.id).order_by(ServiceRequest.requested_at.desc()).limit(20).all()
+    active_visit = Visit.query.filter(
+        Visit.patient_id == patient.id,
+        Visit.status != 'completed'
+    ).order_by(Visit.started_at.desc()).first()
 
     return render_template('patient_card.html', 
                          patient=patient, 
                          vitals=vitals, 
                          notes=notes, 
                          requests=requests,
+                         active_visit=active_visit,
                          user_role=user_role)
+
+
+@app.route('/patient/<national_id>/complete-visit', methods=['POST'])
+@login_required(roles='doctor')
+def complete_visit(national_id):
+    patient = Patient.query.filter_by(national_id=national_id).first_or_404()
+    visit = Visit.query.filter(
+        Visit.patient_id == patient.id,
+        Visit.status != 'completed'
+    ).order_by(Visit.started_at.desc()).first()
+
+    if not visit:
+        flash('No active visit found for this patient.', 'warning')
+        return redirect(url_for('patient_card', national_id=national_id))
+
+    visit.status = 'completed'
+    visit.completed_at = datetime.utcnow()
+    queue = QueueEntry.query.filter_by(visit_id=visit.id).first()
+    if queue:
+        queue.status = 'completed'
+    audit('visit_completed', 'visit', visit.id, f'patient_id={patient.id}')
+    db.session.commit()
+    flash(f'Visit completed for {patient.full_name}.', 'success')
+    return redirect(url_for('dashboard'))
 @app.route('/outpatient-queue')
 @login_required(roles=CLINICAL_READ_ROLES | QUEUE_ASSIGNMENT_ROLES)
 def outpatient_queue():
