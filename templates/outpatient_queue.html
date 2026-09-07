@@ -1,30 +1,40 @@
 {% extends 'base.html' %}
 
 {% block content %}
-  <div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-      <h3 class="mb-1">Outpatient Queue</h3>
-      <p class="text-muted mb-0">All queued outpatient visits </p>
-    </div>
-    <div>
-      <a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
-      <a class="btn btn-primary" href="{{ url_for('patients') }}">Search Patients</a>
+  <div class="page-hero page-hero-teal mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Clinic flow</div>
+        <h3 class="mb-1 dashboard-title">Outpatient Queue</h3>
+        <p class="mb-0 hero-text">Track patients in line and assign them to the right clinician.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 hero-actions">
+        <a class="btn btn-light btn-sm" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+        <a class="btn btn-primary btn-sm" href="{{ url_for('patients') }}">Search Patients</a>
+      </div>
     </div>
   </div>
 
-  <div class="card shadow-sm mb-4">
+  <div class="card queue-panel mb-4">
     <div class="card-body">
       {% if queue_entries %}
-        <div class="list-group">
+        <div class="queue-list">
           {% for entry in queue_entries %}
-            <div class="list-group-item d-flex justify-content-between align-items-center">
-              <div>
-                <div class="fw-semibold">{{ entry.patient.name or entry.patient.full_name }}</div>
-                <div class="text-muted small">ID: {{ entry.patient.national_id }} • {{ entry.patient.phone or 'No phone' }}</div>
-                <div class="text-muted small">Queued at {{ entry.queued_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            <div class="queue-item">
+              <div class="queue-main">
+                <div class="queue-patient-name">{{ entry.patient.name or entry.patient.full_name }}</div>
+                  <div class="queue-stage queue-stage-{{ entry.queue_identifier.key }}">
+                    <span class="stage-dot"></span>
+                    {{ entry.queue_identifier.label }}
+                  </div>
+                <div class="queue-meta">ID: {{ entry.patient.national_id }} • {{ entry.patient.phone or 'No phone' }}</div>
+                <div class="queue-meta">Queued at {{ entry.queued_at.strftime('%Y-%m-%d %H:%M') }}</div>
               </div>
-              <div class="text-end">
-                <div class="mb-2"><span class="badge bg-secondary">{{ entry.status|capitalize }}</span> {{ entry.doctor or 'Unassigned' }}</div>
+              <div class="queue-side">
+                <div class="queue-status-wrap mb-2">
+                  <span class="status-pill status-{{ entry.status|lower|replace('_','-') }}">{{ entry.status|capitalize }}</span>
+                  <span class="doctor-badge">{{ entry.doctor or 'Unassigned' }}</span>
+                </div>
                 {% if session.get('role') in ['doctor', 'admin'] %}
                   <button class="btn btn-sm btn-outline-primary queue-open" type="button" data-queue-id="{{ entry.id }}">Claim and open</button>
                 {% elif session.get('role') in ['receptionist', 'records'] %}
@@ -37,7 +47,10 @@
           {% endfor %}
         </div>
       {% else %}
-        <div class="text-muted">No queued outpatient visits at the moment.</div>
+        <div class="empty-state text-center py-5">
+          <h6 class="mb-2">No queued outpatient visits</h6>
+          <div class="text-muted">The queue is clear right now.</div>
+        </div>
       {% endif %}
     </div>
   </div>

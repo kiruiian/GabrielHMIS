@@ -45,7 +45,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
 
 db = SQLAlchemy(app)
 
-VALID_ROLES = {'receptionist', 'doctor', 'nurse', 'triage', 'admin', 'records', 'accounts', 'hr'}
+VALID_ROLES = {'receptionist', 'doctor', 'nurse', 'triage', 'pharmacist', 'admin', 'records', 'accounts', 'hr'}
 PATIENT_ACCESS_ROLES = {'receptionist', 'doctor', 'nurse', 'triage', 'records'}
 REGISTRATION_ROLES = {'receptionist', 'records'}
 VISIT_MANAGEMENT_ROLES = {'receptionist', 'records'}
@@ -54,8 +54,23 @@ CLINICAL_READ_ROLES = {'doctor', 'nurse', 'triage', 'records'}
 VITALS_ENTRY_ROLES = {'nurse', 'triage'}
 NOTE_ENTRY_ROLES = {'doctor', 'nurse'}
 SERVICE_REQUEST_ROLES = {'doctor'}
+PHARMACY_ROLES = {'pharmacist'}
 PAYMENT_METHODS = {'SHA', 'SHA FFS', 'CASH PAYER', 'BROWNS PLANTATIONS', 'BRITAM', 'JUBILEE'}
 ACTIVE_QUEUE_STATUSES = {'queued', 'in_progress'}
+
+def get_queue_identifier(patient_id):
+    latest_request = ServiceRequest.query.filter_by(patient_id=patient_id).order_by(ServiceRequest.requested_at.desc()).first()
+    if latest_request and (latest_request.status or 'Pending').lower() not in {'completed', 'cancelled', 'closed'}:
+        return {
+            'label': latest_request.service_type or 'Service',
+            'key': (latest_request.service_type or 'service').lower(),
+            'detail': 'Service requested'
+        }
+
+    latest_queue = QueueEntry.query.filter_by(patient_id=patient_id).order_by(QueueEntry.queued_at.desc()).first()
+    labels = {'queued': 'Waiting', 'with_nurse': 'Nurse', 'with_doctor': 'Doctor', 'in_progress': 'Doctor'}
+    status = latest_queue.status if latest_queue else 'queued'
+    return {'label': labels.get(status, 'Waiting'), 'key': status, 'detail': 'Current queue stage'}
 
 # ====================== USER MODEL ======================
 class User(db.Model):
@@ -191,6 +206,36 @@ class ServiceRequest(db.Model):
     patient = db.relationship('Patient', backref=db.backref('service_requests', lazy=True, order_by=requested_at.desc()))
 
 
+class Prescription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
+    item_type = db.Column(db.String(30), default='Medicine', nullable=False)
+    medication = db.Column(db.String(120), nullable=False)
+    identifier = db.Column(db.String(80))
+    needs_refill = db.Column(db.Boolean, default=False)
+    rx_take = db.Column(db.Integer, default=1, nullable=False)
+    strength = db.Column(db.String(60))
+    dosage = db.Column(db.String(80), nullable=False)
+    form = db.Column(db.String(50))
+    interval = db.Column(db.String(30))
+    frequency = db.Column(db.String(80), nullable=False)
+    frequency_unit = db.Column(db.String(20), default='Hours')
+    route = db.Column(db.String(50), default='Oral')
+    indication = db.Column(db.String(160))
+    duration = db.Column(db.String(80), nullable=False)
+    quantity = db.Column(db.String(40))
+    instructions = db.Column(db.Text)
+    start_date = db.Column(db.Date, default=datetime.utcnow)
+    end_date = db.Column(db.Date)
+    as_needed = db.Column(db.Boolean, default=False)
+    take_as_prescribed = db.Column(db.Boolean, default=True)
+    prescribed_by = db.Column(db.String(100), nullable=False)
+    prescribed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    status = db.Column(db.String(20), default='prescribed')
+
+    patient = db.relationship('Patient', backref=db.backref('prescriptions', lazy=True, order_by=prescribed_at.desc()))
+
+
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     actor_user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -278,6 +323,16 @@ def parse_optional_number(raw_value, label, minimum=None, maximum=None, integer=
         raise ValueError(f'{label} must be between {minimum} and {maximum}.')
     return value
 
+
+def parse_optional_date(raw_value):
+    raw_value = (raw_value or '').strip()
+    if not raw_value:
+        return None
+    try:
+        return datetime.strptime(raw_value, '%Y-%m-%d').date()
+    except ValueError as error:
+        raise ValueError('Please enter a valid prescription date.') from error
+
 # ====================== DB SETUP ======================
 def ensure_schema():
     with app.app_context():
@@ -296,6 +351,27 @@ def ensure_schema():
         }
         if 'pain_score' not in vital_columns:
             db.session.execute(text('ALTER TABLE vital_signs ADD COLUMN pain_score INTEGER'))
+        prescription_columns = {
+            row[1] for row in db.session.execute(text('PRAGMA table_info(prescription)'))
+        }
+        prescription_migrations = {
+            'item_type': "ALTER TABLE prescription ADD COLUMN item_type VARCHAR(30) DEFAULT 'Medicine'",
+            'identifier': 'ALTER TABLE prescription ADD COLUMN identifier VARCHAR(80)',
+            'needs_refill': 'ALTER TABLE prescription ADD COLUMN needs_refill BOOLEAN DEFAULT 0',
+            'rx_take': 'ALTER TABLE prescription ADD COLUMN rx_take INTEGER DEFAULT 1',
+            'form': 'ALTER TABLE prescription ADD COLUMN form VARCHAR(50)',
+            'interval': 'ALTER TABLE prescription ADD COLUMN interval VARCHAR(30)',
+            'frequency_unit': "ALTER TABLE prescription ADD COLUMN frequency_unit VARCHAR(20) DEFAULT 'Hours'",
+            'route': "ALTER TABLE prescription ADD COLUMN route VARCHAR(50) DEFAULT 'Oral'",
+            'indication': 'ALTER TABLE prescription ADD COLUMN indication VARCHAR(160)',
+            'start_date': 'ALTER TABLE prescription ADD COLUMN start_date DATE',
+            'end_date': 'ALTER TABLE prescription ADD COLUMN end_date DATE',
+            'as_needed': 'ALTER TABLE prescription ADD COLUMN as_needed BOOLEAN DEFAULT 0',
+            'take_as_prescribed': 'ALTER TABLE prescription ADD COLUMN take_as_prescribed BOOLEAN DEFAULT 1',
+        }
+        for column, migration in prescription_migrations.items():
+            if column not in prescription_columns:
+                db.session.execute(text(migration))
         db.session.commit()
 
 with app.app_context():
@@ -396,7 +472,8 @@ def dashboard():
 def patient_details(national_id):
     patient = Patient.query.filter_by(national_id=national_id).first_or_404()
     visit = Visit.query.filter_by(patient_id=patient.id).order_by(Visit.started_at.desc()).first()
-    return render_template('patient.html', patient=patient, last_visit=visit)
+    queue_identifier = get_queue_identifier(patient.id)
+    return render_template('patient.html', patient=patient, last_visit=visit, queue_identifier=queue_identifier)
 
 @app.route('/patient/<national_id>/records')
 @login_required(roles=PATIENT_ACCESS_ROLES)
@@ -476,7 +553,7 @@ def patient_card(national_id):
                 flash('Only doctors can request clinical services.', 'danger')
                 return redirect(url_for('patient_card', national_id=national_id))
             service_type = request.form.get('service_type', '').strip()
-            if service_type not in {'Lab', 'Pharmacy', 'Radiology'}:
+            if service_type not in {'Lab', 'Pharmacy', 'Radiology', 'Referral'}:
                 flash('Please choose a valid service.', 'danger')
                 return redirect(url_for('patient_card', national_id=national_id))
             description = request.form.get('service_description', '').strip()
@@ -490,6 +567,58 @@ def patient_card(national_id):
                 requested_by=session.get('full_name', 'Doctor')
             ))
             flash(f'{service_type} request sent successfully.', 'success')
+        elif action == 'prescription':
+            if user_role not in SERVICE_REQUEST_ROLES and user_role != 'admin':
+                flash('Only doctors can prescribe medication.', 'danger')
+                return redirect(url_for('patient_card', national_id=national_id))
+            medication = request.form.get('medication', '').strip()
+            dosage = request.form.get('dosage', '').strip()
+            frequency = request.form.get('frequency', '').strip()
+            frequency_unit = request.form.get('frequency_unit', 'Hours').strip()
+            try:
+                rx_take = int(request.form.get('rx_take', '1'))
+            except ValueError:
+                rx_take = 0
+            duration_value = request.form.get('duration', '').strip()
+            duration_unit = request.form.get('duration_unit', 'Days').strip()
+            duration = f'{duration_value} {duration_unit}'.strip()
+            try:
+                start_date = parse_optional_date(request.form.get('start_date'))
+                end_date = parse_optional_date(request.form.get('end_date'))
+            except ValueError as error:
+                flash(str(error), 'danger')
+                return redirect(url_for('patient_card', national_id=national_id))
+            if not all([medication, dosage, frequency, duration]) or rx_take not in {1, 2, 3}:
+                flash('Medication, dosage, frequency, and duration are required.', 'danger')
+                return redirect(url_for('patient_card', national_id=national_id))
+            prescription = Prescription(
+                patient_id=patient.id,
+                item_type=request.form.get('item_type', 'Medicine').strip() or 'Medicine',
+                medication=medication,
+                identifier=request.form.get('identifier', '').strip() or None,
+                needs_refill=request.form.get('needs_refill') == 'on',
+                rx_take=rx_take,
+                strength=request.form.get('strength', '').strip() or None,
+                dosage=dosage,
+                form=request.form.get('form', '').strip() or None,
+                interval=request.form.get('interval', '').strip() or None,
+                frequency=frequency,
+                frequency_unit=frequency_unit if frequency_unit in {'Minutes', 'Hours'} else 'Hours',
+                route=request.form.get('route', '').strip() or 'Oral',
+                indication=request.form.get('indication', '').strip() or None,
+                duration=duration,
+                quantity=request.form.get('quantity', '').strip() or None,
+                instructions=request.form.get('instructions', '').strip() or None,
+                start_date=start_date,
+                end_date=end_date,
+                as_needed=request.form.get('administration') == 'as_needed',
+                take_as_prescribed=request.form.get('administration', 'prescribed') == 'prescribed',
+                prescribed_by=session.get('full_name', 'Doctor')
+            )
+            db.session.add(prescription)
+            db.session.flush()
+            audit('prescription_created', 'prescription', prescription.id, f'patient_id={patient.id}')
+            flash('Prescription sent to pharmacy.', 'success')
         else:
             flash('Unknown patient-card action.', 'danger')
             return redirect(url_for('patient_card', national_id=national_id))
@@ -521,7 +650,8 @@ def patient_card(national_id):
                          notes=notes, 
                          requests=requests,
                          active_visit=active_visit,
-                         user_role=user_role)
+                         user_role=user_role,
+                         queue_identifier=get_queue_identifier(patient.id))
 
 
 @app.route('/patient/<national_id>/complete-visit', methods=['POST'])
@@ -549,8 +679,10 @@ def complete_visit(national_id):
 @app.route('/outpatient-queue')
 @login_required(roles=CLINICAL_READ_ROLES | QUEUE_ASSIGNMENT_ROLES)
 def outpatient_queue():
-    visible_statuses = {'queued', 'with_doctor'} if session.get('role') in {'doctor', 'admin'} else {'queued'}
+    visible_statuses = {'queued', 'with_doctor', 'in_progress'} if session.get('role') in {'doctor', 'admin'} else {'queued'}
     queue_entries = QueueEntry.query.filter(QueueEntry.status.in_(visible_statuses)).order_by(QueueEntry.queued_at.desc()).all()
+    for entry in queue_entries:
+        entry.queue_identifier = get_queue_identifier(entry.patient_id)
     return render_template('outpatient_queue.html', queue_entries=queue_entries)
 
 @app.route('/patient/<national_id>/send-to-doctor', methods=['POST'])
@@ -722,6 +854,28 @@ def dashboard_stats():
         'revisit_visits': revisit_visits,
         'new_visits': new_visits
     }
+
+
+@app.route('/pharmacy')
+@login_required(roles=PHARMACY_ROLES)
+def pharmacy_queue():
+    prescriptions = Prescription.query.filter(
+        Prescription.status.in_({'prescribed', 'processing'})
+    ).order_by(Prescription.prescribed_at.asc()).all()
+    response = app.make_response(render_template('pharmacy.html', prescriptions=prescriptions))
+    response.headers['Cache-Control'] = 'no-store, max-age=0'
+    return response
+
+
+@app.route('/pharmacy/<int:prescription_id>/dispense', methods=['POST'])
+@login_required(roles=PHARMACY_ROLES)
+def dispense_prescription(prescription_id):
+    prescription = Prescription.query.get_or_404(prescription_id)
+    prescription.status = 'dispensed'
+    audit('prescription_dispensed', 'prescription', prescription.id, f'patient_id={prescription.patient_id}')
+    db.session.commit()
+    flash(f'{prescription.medication} marked as dispensed.', 'success')
+    return redirect(url_for('pharmacy_queue'))
 
 @app.route('/register', methods=['GET', 'POST'])
 @login_required(roles=REGISTRATION_ROLES)

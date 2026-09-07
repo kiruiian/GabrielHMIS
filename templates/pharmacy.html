@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-hero page-hero-teal mb-4">
+  <div class="page-hero-content">
+    <div>
+      <div class="eyebrow">Medication workflow</div>
+      <h3 class="mb-1 dashboard-title">Pharmacy Queue</h3>
+      <p class="mb-0 hero-text">Review prescriptions and record dispensing.</p>
+    </div>
+  </div>
+</div>
+
+<div class="card queue-panel">
+  <div class="card-body">
+    {% if prescriptions %}
+    <div class="queue-list">
+      {% for prescription in prescriptions %}
+      <div class="queue-item">
+        <div class="queue-main">
+          <div class="queue-patient-name">{{ prescription.patient.full_name }}</div>
+          <div class="queue-stage queue-stage-pharmacy"><span class="stage-dot"></span>Pharmacy</div>
+          <div class="queue-meta">Patient ID: {{ prescription.patient.national_id }}</div>
+          <div class="queue-meta">Prescribed by {{ prescription.prescribed_by }} on {{ prescription.prescribed_at.strftime('%d %b %Y at %H:%M') }}</div>
+        </div>
+        <div class="queue-side pharmacy-prescription">
+          <div class="prescription-name">{{ prescription.medication }}{% if prescription.strength %} {{ prescription.strength }}{% endif %}</div>
+          <div class="prescription-details">Take {{ prescription.rx_take }} • {{ prescription.dosage }} • every {{ prescription.frequency }} {{ prescription.frequency_unit|lower }} • {{ prescription.duration }}</div>
+          <div class="prescription-details">
+            {% if prescription.as_needed %}Take as needed{% endif %}
+            {% if prescription.take_as_prescribed %}{% if prescription.as_needed %} • {% endif %}Take as prescribed{% endif %}
+          </div>
+          {% if prescription.quantity %}<div class="prescription-details">Quantity: {{ prescription.quantity }}</div>{% endif %}
+          {% if prescription.instructions %}<div class="prescription-details">{{ prescription.instructions }}</div>{% endif %}
+          <form method="POST" action="{{ url_for('dispense_prescription', prescription_id=prescription.id) }}" class="mt-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-success">Mark as dispensed</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state text-center py-5">
+      <h6 class="mb-2">No prescriptions waiting</h6>
+      <div class="text-muted">New doctor prescriptions will appear here.</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

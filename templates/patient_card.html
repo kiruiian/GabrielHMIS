@@ -2,45 +2,56 @@
 
 {% block content %}
 <div class="container-fluid py-3">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h3>Patient Card - {{ patient.full_name }}</h3>
-            <p class="text-muted mb-0">
-                ID: <strong>{{ patient.national_id }}</strong> • 
-                Age: {{ patient.age }} • {{ patient.gender }}
-            </p>
-        </div>
-        <div class="d-flex gap-2">
-            {% if active_visit and user_role in ['doctor', 'admin'] %}
-            <form method="POST" action="{{ url_for('complete_visit', national_id=patient.national_id) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn btn-success">Complete visit</button>
-            </form>
-            {% endif %}
-            {% if user_role in ['nurse', 'triage', 'admin'] %}
-            <form method="POST" action="{{ url_for('send_to_doctor', national_id=patient.national_id) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn btn-primary">Send to Doctor</button>
-            </form>
-            {% endif %}
-            {% if user_role in ['doctor', 'admin'] %}
-            <a href="#referrals" class="btn btn-primary" data-bs-toggle="tab">Send to Lab</a>
-            <a href="#referrals" class="btn btn-success" data-bs-toggle="tab">Send to Pharmacy</a>
-            <a href="#referrals" class="btn btn-info" data-bs-toggle="tab">Send to Radiology</a>
-            {% endif %}
-            <a href="{{ url_for('patient_details', national_id=patient.national_id) }}" class="btn btn-outline-secondary">← Back to Profile</a>
+    <div class="card patient-summary-card mb-4">
+        <div class="card-body">
+            <div class="row align-items-center g-3">
+                <div class="col-lg-2 col-md-3">
+                    <div class="patient-avatar-wrap">
+                        <div class="patient-avatar-badge">{{ patient.display_first_name[:1] or 'P' }}{{ patient.display_other_names[:1] or '' }}</div>
+                    </div>
+                </div>
+                <div class="col-lg-6 col-md-9">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                        <h3 class="mb-0 patient-card-title">{{ patient.full_name }}</h3>
+                        {% if active_visit %}
+                        <span class="badge badge-brand-soft">{{ active_visit.status|replace('_', ' ')|title }}</span>
+                        {% endif %}
+                        <span class="business-status-badge queue-stage-{{ queue_identifier.key }}">{{ queue_identifier.label }}</span>
+                    </div>
+                    <p class="text-muted mb-2 patient-card-meta">
+                        <span><strong>ID:</strong> {{ patient.national_id }}</span>
+                        <span class="mx-2">•</span>
+                        <span><strong>Age:</strong> {{ patient.age }}</span>
+                        <span class="mx-2">•</span>
+                        <span><strong>Gender:</strong> {{ patient.gender }}</span>
+                    </p>
+                    {% if active_visit %}
+                    <div class="visit-summary">
+                        <span class="visit-summary-label">Active visit</span>
+                        <span>{{ active_visit.visit_type or 'Outpatient visit' }} • started {{ active_visit.started_at.strftime('%d %b %Y at %H:%M') }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="col-lg-4">
+                    <div class="action-toolbar">
+                        {% if active_visit and user_role in ['doctor', 'admin'] %}
+                        <form method="POST" action="{{ url_for('complete_visit', national_id=patient.national_id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-success btn-sm w-100">Complete visit</button>
+                        </form>
+                        {% endif %}
+                        {% if user_role in ['nurse', 'triage', 'admin'] %}
+                        <form method="POST" action="{{ url_for('send_to_doctor', national_id=patient.national_id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-primary btn-sm w-100">Send to Doctor</button>
+                        </form>
+                        {% endif %}
+                        <a href="{{ url_for('patient_details', national_id=patient.national_id) }}" class="btn btn-outline-secondary btn-sm w-100">← Back to Profile</a>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
-
-    {% if active_visit %}
-    <div class="alert alert-info d-flex justify-content-between align-items-center gap-3 mb-4">
-        <div>
-            <strong>Active visit</strong>
-            <span class="ms-2">{{ active_visit.visit_type or 'Outpatient visit' }} started {{ active_visit.started_at.strftime('%d %b %Y at %H:%M') }}</span>
-        </div>
-        <span class="badge bg-info text-dark">{{ active_visit.status|replace('_', ' ')|title }}</span>
-    </div>
-    {% endif %}
 
     <ul class="nav nav-tabs mb-4" role="tablist">
         <li class="nav-item">
@@ -48,9 +59,6 @@
         </li>
         <li class="nav-item">
             <button class="nav-link {% if user_role == 'doctor' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#notes">Clinical Notes</button>
-        </li>
-        <li class="nav-item">
-            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#referrals">Referrals</button>
         </li>
     </ul>
 
@@ -168,26 +176,185 @@
                         <input type="hidden" name="action" value="note">
                         <div class="row g-3">
                             <div class="col-12">
-                                <label class="form-label fw-semibold" for="history">Subjective <span class="text-muted fw-normal">(patient history and symptoms)</span></label>
-                                <textarea id="history" name="history" class="form-control" rows="4" placeholder="Presenting complaint, history of presenting illness, relevant symptoms..."></textarea>
+                                <label class="form-label fw-semibold" for="history">Presenting Complaint <span class="text-muted fw-normal"></span></label>
+                                <textarea id="history" name="history" class="form-control" rows="4" placeholder="e.g. fever, cough, abdominal pain, onset, duration, severity..."></textarea>
                             </div>
                             <div class="col-12">
-                                <label class="form-label fw-semibold" for="examination">Objective <span class="text-muted fw-normal">(examination and results)</span></label>
-                                <textarea id="examination" name="examination" class="form-control" rows="4" placeholder="Examination findings, relevant observations, test results..."></textarea>
+                                <label class="form-label fw-semibold" for="examination">History of Presenting Complaint <span class="text-muted fw-normal"></span></label>
+                                <textarea id="examination" name="examination" class="form-control" rows="4" placeholder="e.g. started 3 days ago, worsening, associated symptoms, aggravating factors, relieving factors..."></textarea>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label fw-semibold" for="diagnosis">Assessment <span class="text-muted fw-normal">(diagnosis)</span></label>
-                                <textarea id="diagnosis" name="diagnosis" class="form-control" rows="4" placeholder="Working or confirmed diagnosis..."></textarea>
+                                <label class="form-label fw-semibold" for="diagnosis">Review of Other Systems <span class="text-muted fw-normal"></span></label>
+                                <textarea id="diagnosis" name="diagnosis" class="form-control" rows="4" placeholder="e.g. respiratory, cardiovascular, urinary symptoms..."></textarea>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label fw-semibold" for="plan">Plan <span class="text-muted fw-normal">(management and follow-up)</span></label>
-                                <textarea id="plan" name="plan" class="form-control" rows="4" placeholder="Treatment, prescriptions, referrals, safety-netting, follow-up..."></textarea>
+                                <label class="form-label fw-semibold" for="assessment">Diagnosis <span class="text-muted fw-normal"></span></label>
+                                <textarea id="assessment" name="diagnosis" class="form-control" rows="4" placeholder="Working or confirmed diagnosis..."></textarea>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold" for="management-plan">Plan <span class="text-muted fw-normal"></span></label>
+                                <textarea id="management-plan" name="plan" class="form-control" rows="4" placeholder="Treatment, referrals,follow-up..."></textarea>
                             </div>
                         </div>
                         <div class="d-flex justify-content-end mt-3">
                             <button type="submit" class="btn btn-primary">Save clinical note</button>
                         </div>
+                        {% if user_role in ['doctor', 'admin'] %}
+                        <div class="clinical-next-actions mt-3 pt-3 border-top">
+                            <div class="text-muted small mb-2">Send the patient to:</div>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-outline-primary btn-sm service-request-button" data-service="Lab">Send to Lab</button>
+                                <a class="btn btn-outline-success btn-sm" href="#prescriptionForm">Send to Pharmacy</a>
+                                <button type="button" class="btn btn-outline-info btn-sm service-request-button" data-service="Radiology">Send to Radiology</button>
+                                <button type="button" class="btn btn-outline-warning btn-sm service-request-button" data-service="Referral">Send Referral</button>
+                            </div>
+                        </div>
+                        {% endif %}
                     </form>
+                    {% if user_role in ['doctor', 'admin'] %}
+                    <div id="prescriptionForm" class="prescription-inline-form mt-3">
+                        <div class="border-top pt-3">
+                            <h6>New medication prescription</h6>
+                            <form method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="prescription">
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Item type</label>
+                                        <select name="item_type" class="form-select" required>
+                                            <option value="Medicine">Medicine</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-5">
+                                        <label class="form-label">Medication</label>
+                                        <input type="text" name="medication" class="form-control" required placeholder="Medication name">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Identifier</label>
+                                        <input type="text" name="identifier" class="form-control" placeholder="Generic or code">
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="form-check">
+                                            <input type="checkbox" name="needs_refill" class="form-check-input" id="needsRefill">
+                                            <label class="form-check-label" for="needsRefill">Needs refill</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Strength</label>
+                                        <input type="text" name="strength" class="form-control" placeholder="e.g. 500 mg">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Dosage</label>
+                                        <input type="text" name="dosage" class="form-control" required placeholder="e.g. 1 tablet">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Rx take</label>
+                                        <select name="rx_take" class="form-select" required>
+                                            <option value="1">1</option>
+                                            <option value="2">2</option>
+                                            <option value="3">3</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Form</label>
+                                        <select name="form" class="form-select">
+                                            <option value="">Choose form</option>
+                                            <option>Tablet(s)</option>
+                                            <option>Capsule(s)</option>
+                                            <option>Liquid</option>
+                                            <option>Cream</option>
+                                            <option>Injection</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Every</label>
+                                        <input type="text" name="interval" class="form-control" placeholder="e.g. 8">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Frequency</label>
+                                        <input type="number" name="frequency" class="form-control" required min="1" placeholder="e.g. 8">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Frequency unit</label>
+                                        <select name="frequency_unit" class="form-select" required>
+                                            <option>Hours</option>
+                                            <option>Minutes</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">For</label>
+                                        <input type="text" name="duration" class="form-control" required placeholder="e.g. 5">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Duration unit</label>
+                                        <select name="duration_unit" class="form-select">
+                                            <option>Days</option>
+                                            <option>Weeks</option>
+                                            <option>Months</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Route</label>
+                                        <select name="route" class="form-select">
+                                            <option>Oral</option>
+                                            <option>Topical</option>
+                                            <option>Intravenous</option>
+                                            <option>Intramuscular</option>
+                                            <option>Subcutaneous</option>
+                                            <option>Inhaled</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Indication</label>
+                                        <input type="text" name="indication" class="form-control" placeholder="Reason for treatment">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Quantity</label>
+                                        <input type="text" name="quantity" class="form-control" placeholder="e.g. 10 tablets">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Prescription start date</label>
+                                        <input type="date" name="start_date" class="form-control">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Prescription end date</label>
+                                        <input type="date" name="end_date" class="form-control">
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">Instructions</label>
+                                        <textarea name="instructions" class="form-control" rows="2" placeholder="Additional instructions for the patient or pharmacist"></textarea>
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="form-check">
+                                            <input type="radio" name="administration" value="as_needed" class="form-check-input" id="asNeeded">
+                                            <label class="form-check-label" for="asNeeded">Take as needed (PRN)</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input type="radio" name="administration" value="prescribed" class="form-check-input" id="takeAsPrescribed" checked>
+                                            <label class="form-check-label" for="takeAsPrescribed">Take as prescribed</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-success mt-3">Send prescription</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if user_role in ['doctor', 'admin'] %}
+                    <div id="serviceRequestForm" class="service-inline-form mt-3">
+                        <div class="border-top pt-3">
+                            <h6 id="serviceRequestTitle">New service request</h6>
+                            <form method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="service_request">
+                                <input type="hidden" name="service_type" id="selectedService" value="Lab">
+                                <label class="form-label" for="serviceDescription">Details</label>
+                                <input type="text" name="service_description" id="serviceDescription" class="form-control" placeholder="Tests, imaging, or referral details" required>
+                                <button type="submit" class="btn btn-primary mt-3">Send request</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endif %}
                     </div>
                 </div>
 
@@ -222,59 +389,49 @@
             {% else %}
             <div class="alert alert-info">You don't have permission to view clinical notes.</div>
             {% endif %}
-        </div>
-
-        <!-- ==================== REFERRALS ==================== -->
-        <div class="tab-pane fade" id="referrals">
-            {% if user_role in ['doctor', 'admin'] %}
-            <div class="card mb-4">
-                <div class="card-header">Send Request</div>
-                <div class="card-body">
-                    <form method="POST">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="action" value="service_request">
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label">Service</label>
-                                <select name="service_type" class="form-select" required>
-                                    <option value="">Choose service</option>
-                                    <option value="Lab">Lab</option>
-                                    <option value="Pharmacy">Pharmacy</option>
-                                    <option value="Radiology">Radiology</option>
-                                </select>
-                            </div>
-                            <div class="col-md-8">
-                                <label class="form-label">Details</label>
-                                <input type="text" name="service_description" class="form-control" placeholder="Tests, medicines, or imaging required" required>
-                            </div>
-                        </div>
-                        <button type="submit" class="btn btn-primary mt-3">Send Request</button>
-                    </form>
+            <div class="service-history mt-4 pt-3 border-top">
+                <h5>Service Requests</h5>
+                {% if requests %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead><tr><th>Date</th><th>Service</th><th>Details</th><th>Status</th></tr></thead>
+                        <tbody>
+                        {% for request in requests %}
+                        <tr>
+                            <td>{{ request.requested_at.strftime('%d %b %Y %H:%M') }}</td>
+                            <td>{{ request.service_type }}</td>
+                            <td>{{ request.description }}</td>
+                            <td>{{ request.status }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
+                {% else %}
+                <p class="text-muted">No service requests yet.</p>
+                {% endif %}
             </div>
-            {% endif %}
-
-            <h5>Service Requests</h5>
-            {% if requests %}
-            <div class="table-responsive">
-                <table class="table table-sm">
-                    <thead><tr><th>Date</th><th>Service</th><th>Details</th><th>Status</th></tr></thead>
-                    <tbody>
-                    {% for request in requests %}
-                    <tr>
-                        <td>{{ request.requested_at.strftime('%d %b %Y %H:%M') }}</td>
-                        <td>{{ request.service_type }}</td>
-                        <td>{{ request.description }}</td>
-                        <td>{{ request.status }}</td>
-                    </tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <p class="text-muted">No service requests yet.</p>
-            {% endif %}
         </div>
+
+        {% if user_role in ['doctor', 'admin'] %}
+        <script>
+            document.getElementById('showPrescriptionForm')?.addEventListener('click', () => {
+                const form = document.getElementById('prescriptionForm');
+                form.hidden = false;
+                form.querySelector('input[name="medication"]').focus();
+            });
+
+            document.querySelectorAll('.service-request-button').forEach((button) => {
+                button.addEventListener('click', () => {
+                    document.getElementById('selectedService').value = button.dataset.service;
+                    document.getElementById('serviceRequestTitle').textContent = `New ${button.dataset.service.toLowerCase()} request`;
+                    const form = document.getElementById('serviceRequestForm');
+                    form.hidden = false;
+                    form.querySelector('input[name="service_description"]').focus();
+                });
+            });
+        </script>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

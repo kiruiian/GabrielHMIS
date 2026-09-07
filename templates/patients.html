@@ -1,27 +1,24 @@
 {% extends 'base.html' %}
 
 {% block content %}
-  <div class="card mb-3 border-0 shadow-sm hero-card">
-    <div class="card-body">
-      <div class="d-flex flex-column flex-md-row justify-content-between align-items-start gap-3">
-        <div>
-          <h3 class="mb-1">Patients</h3>
-          <p class="text-muted mb-1">Use the patient search below to find records by national ID, name, or phone.</p>
-          <div class="d-flex flex-wrap gap-2">
-            {% if session.get('role') in ['receptionist', 'records', 'admin'] %}
-              <a class="btn btn-sm btn-success" href="{{ url_for('register_patient') }}">Add Patient</a>
-            {% endif %}
-            <button class="btn btn-sm btn-outline-secondary" disabled>Import Patients</button>
-            <button class="btn btn-sm btn-outline-secondary" disabled>Inpatient Queue</button>
-            <a class="btn btn-sm btn-primary" href="{{ url_for('outpatient_queue') }}">Outpatient Queue</a>
-          </div>
-        </div>
+  <div class="page-hero page-hero-blue mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Patient registry</div>
+        <h3 class="mb-1 dashboard-title">Patients</h3>
+        <p class="mb-0 hero-text">Search by national ID, phone, or name to find the right record fast.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 hero-actions">
+        {% if session.get('role') in ['receptionist', 'records', 'admin'] %}
+          <a class="btn btn-success btn-sm" href="{{ url_for('register_patient') }}">Add Patient</a>
+        {% endif %}
+        <a class="btn btn-light btn-sm" href="{{ url_for('outpatient_queue') }}">Outpatient Queue</a>
       </div>
     </div>
   </div>
 
-  <div class="card mb-4">
-    <div class="card-body bg-white">
+  <div class="card search-panel mb-4">
+    <div class="card-body">
       <form method="get" action="{{ url_for('patients') }}" class="row g-3 align-items-end">
         <div class="col-md-4">
           <label class="form-label text-muted">I.D. number</label>
@@ -42,11 +39,11 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card patient-table-card">
     <div class="card-body p-0">
       <div class="table-responsive">
-        <table class="table table-sm mb-0">
-          <thead class="table-light">
+        <table class="table table-sm mb-0 patient-table">
+          <thead>
             <tr>
               <th>#</th>
               <th>Patient Number</th>
@@ -61,11 +58,11 @@
             {% for p in patients %}
               <tr>
                 <td>{{ (page - 1) * per_page + loop.index }}</td>
-                <td>{{ 'SGH' + ('%06d' % p.id) }}</td>
+                <td><span class="patient-id-pill">{{ 'SGH' + ('%06d' % p.id) }}</span></td>
                 <td>{{ p.display_first_name }}</td>
                 <td>{{ p.display_other_names or '' }}</td>
                 <td>{{ p.phone or '—' }}</td>
-                <td>{{ last_visits.get(p.id).strftime('%d %b %Y') if last_visits.get(p.id) else '' }}</td>
+                <td>{{ last_visits.get(p.id).strftime('%d %b %Y') if last_visits.get(p.id) else '—' }}</td>
                 <td>
                   <div class="d-flex flex-wrap gap-2">
                     {% if session.get('role') in ['receptionist', 'records', 'admin'] %}
@@ -88,7 +85,7 @@
     </div>
   </div>
 
-  <div class="mt-3 d-flex justify-content-between">
+  <div class="mt-3 d-flex justify-content-between align-items-center flex-wrap gap-3">
     <div class="text-muted">Showing {{ patients|length }} of {{ total }} patients</div>
     <div>
       {% if page > 1 %}

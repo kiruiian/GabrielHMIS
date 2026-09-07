@@ -46,6 +46,10 @@
           <strong>Visit Type</strong>
           <div>{{ patient.visit_type if patient.visit_type else 'New Visit' }}</div>
         </div>
+        <div class="col-md-3">
+          <strong>Current Location</strong>
+          <div><span class="queue-stage queue-stage-{{ queue_identifier.key }}"><span class="stage-dot"></span>{{ queue_identifier.label }}</span></div>
+        </div>
         <div class="col-12">
           <strong>Address</strong>
           <div>{{ patient.address if patient.address else 'No address provided' }}</div>

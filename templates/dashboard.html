@@ -8,64 +8,116 @@
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
   </style>
 
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-      <h3 class="mb-1">Dashboard</h3>
-      <p class="text-muted mb-0">Overview of today&#39;s activity.</p>
-    </div>
-  </div>
-
-  <div class="card shadow-sm mb-4 border-0 bg-light">
-    <div class="card-body">
-      <div class="row g-3 text-center align-items-center">
-        <div class="col-md-6">
-          <div class="p-2">
-            <div class="text-muted small">Registered today</div>
-            <div class="fs-3 fw-bold text-success" id="todayPatients">0</div>
-          </div>
+  <div class="dashboard-shell">
+    <div class="hero-banner mb-4">
+      <div class="hero-banner-content">
+        <div>
+          <div class="eyebrow">Operations overview</div>
+          <h3 class="mb-2 dashboard-title">Dashboard</h3>
+          <p class="mb-0 hero-text">Today's activity at a glance.</p>
         </div>
-        <div class="col-md-6">
-          <div class="p-2">
-            <div class="text-muted small">Visits today</div>
-            <div class="fs-3 fw-bold text-info" id="todayVisits">0</div>
-          </div>
+        <div class="d-flex gap-2 flex-wrap hero-actions">
+          <a href="{{ url_for('register_patient') }}" class="btn btn-primary btn-sm">Register patient</a>
+          <a href="{{ url_for('outpatient_queue') }}" class="btn btn-light btn-sm">View queue</a>
+        </div>
+      </div>
+      <div class="hero-badge-wrap">
+        <div class="hero-badge">24h</div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-3 col-sm-6">
+        <div class="metric-card metric-card-success">
+          <div class="metric-label">Registered today</div>
+          <div class="metric-value" id="todayPatients">0</div>
+        </div>
+      </div>
+      <div class="col-md-3 col-sm-6">
+        <div class="metric-card metric-card-primary">
+          <div class="metric-label">Visits today</div>
+          <div class="metric-value" id="todayVisits">0</div>
+        </div>
+      </div>
+      <div class="col-md-3 col-sm-6">
+        <div class="metric-card metric-card-info">
+          <div class="metric-label">New visits</div>
+          <div class="metric-value" id="newVisitCount">0</div>
+        </div>
+      </div>
+      <div class="col-md-3 col-sm-6">
+        <div class="metric-card metric-card-warning">
+          <div class="metric-label">Revisits</div>
+          <div class="metric-value" id="revisitComparisonCount">0</div>
         </div>
       </div>
     </div>
-  </div>
 
-  <div class="card shadow-sm mb-4">
-    <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <h5 class="mb-0">Visit comparison</h5>
-        <span class="text-muted small">All recorded visits: new vs revisit</span>
-      </div>
-      <div class="row g-3">
-        <div class="col-md-6">
-          <div class="border rounded p-3 h-100">
-            <div class="d-flex justify-content-between align-items-start">
-              <div>
-                <div class="text-muted small">New visits</div>
-                <div class="fs-3 fw-bold text-primary" id="newVisitCount">0</div>
-              </div>
-              <span class="badge bg-primary">New</span>
+    <div class="row g-4 mb-4">
+      <div class="col-lg-8">
+        <div class="card dashboard-card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h5 class="mb-0">Visit comparison</h5>
+              <span class="text-muted small">New vs revisit</span>
             </div>
-            <div class="progress mt-3" style="height: 10px;">
-              <div class="progress-bar bg-primary" id="newVisitBar" style="width: 0%"></div>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <div class="comparison-panel comparison-panel-primary">
+                  <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                      <div class="text-muted small">New visits</div>
+                      <div class="fs-3 fw-bold text-primary" id="newVisitCountDetail">0</div>
+                    </div>
+                    <span class="badge bg-primary">New</span>
+                  </div>
+                  <div class="progress mt-3" style="height: 10px;">
+                    <div class="progress-bar bg-primary" id="newVisitBar" style="width: 0%"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="comparison-panel comparison-panel-info">
+                  <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                      <div class="text-muted small">Revisits</div>
+                      <div class="fs-3 fw-bold text-info" id="revisitComparisonCountDetail">0</div>
+                    </div>
+                    <span class="badge bg-info text-dark">Revisit</span>
+                  </div>
+                  <div class="progress mt-3" style="height: 10px;">
+                    <div class="progress-bar bg-info" id="revisitBar" style="width: 0%"></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-        <div class="col-md-6">
-          <div class="border rounded p-3 h-100">
-            <div class="d-flex justify-content-between align-items-start">
-              <div>
-                <div class="text-muted small">Revisits</div>
-                <div class="fs-3 fw-bold text-info" id="revisitComparisonCount">0</div>
-              </div>
-              <span class="badge bg-info text-dark">Revisit</span>
-            </div>
-            <div class="progress mt-3" style="height: 10px;">
-              <div class="progress-bar bg-info" id="revisitBar" style="width: 0%"></div>
+      </div>
+
+      <div class="col-lg-4">
+        <div class="card dashboard-card h-100">
+          <div class="card-body">
+            <h5 class="mb-3">Quick access</h5>
+            <div class="quick-links">
+              <a href="{{ url_for('patients') }}" class="quick-link-item">
+                <span class="quick-link-icon text-primary">👥</span>
+                <span>Patients</span>
+              </a>
+              <a href="{{ url_for('outpatient_queue') }}" class="quick-link-item">
+                <span class="quick-link-icon text-success">📋</span>
+                <span>Queue</span>
+              </a>
+              <a href="{{ url_for('records') }}" class="quick-link-item">
+                <span class="quick-link-icon text-warning">🗂️</span>
+                <span>Records</span>
+              </a>
+              {% if session.get('role') == 'admin' %}
+              <a href="{{ url_for('register_staff') }}" class="quick-link-item">
+                <span class="quick-link-icon text-info">👩‍⚕️</span>
+                <span>Staff</span>
+              </a>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -78,6 +130,8 @@
     const todayVisits = document.getElementById('todayVisits');
     const newVisitCount = document.getElementById('newVisitCount');
     const revisitComparisonCount = document.getElementById('revisitComparisonCount');
+    const newVisitCountDetail = document.getElementById('newVisitCountDetail');
+    const revisitComparisonCountDetail = document.getElementById('revisitComparisonCountDetail');
     const newVisitBar = document.getElementById('newVisitBar');
     const revisitBar = document.getElementById('revisitBar');
 
@@ -89,6 +143,8 @@
         if (todayVisits) todayVisits.textContent = data.today_visits;
         if (newVisitCount) newVisitCount.textContent = data.new_visits;
         if (revisitComparisonCount) revisitComparisonCount.textContent = data.revisit_visits;
+        if (newVisitCountDetail) newVisitCountDetail.textContent = data.new_visits;
+        if (revisitComparisonCountDetail) revisitComparisonCountDetail.textContent = data.revisit_visits;
 
         const totalVisits = (data.new_visits || 0) + (data.revisit_visits || 0);
         const newVisitPercent = totalVisits ? ((data.new_visits || 0) / totalVisits) * 100 : 0;
