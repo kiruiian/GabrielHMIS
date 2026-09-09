@@ -9,9 +9,9 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="row">
         <div class="mb-3 col-md-6">
-          <label class="form-label">Payment method</label>
+          <label class="form-label">Insurance / payer</label>
           <select name="payment_method" class="form-select" required>
-            <option value="">Select payment method</option>
+            <option value="">Select insurer or payer</option>
             <option>SHA</option>
             <option>SHA FFS</option>
             <option>CASH PAYER</option>
@@ -19,13 +19,6 @@
             <option>BRITAM</option>
             <option>JUBILEE</option>
           </select>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="mb-3 col-md-6">
-          <label class="form-label">Invoice / CR number (optional)</label>
-          <input type="text" name="invoice_number" class="form-control" placeholder="Invoice or CR number">
         </div>
       </div>
 

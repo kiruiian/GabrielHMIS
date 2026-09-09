@@ -1,0 +1,161 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <style>
+    .invoice-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+    .invoice-sheet { max-width: 920px; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; box-shadow: 0 16px 40px rgba(15, 23, 42, 0.10); }
+    .invoice-header { display: flex; justify-content: space-between; gap: 2rem; padding: 1.25rem 1.5rem 0.8rem; border-bottom: 3px solid #64748b; }
+    .invoice-brand { display: flex; align-items: center; gap: 0.75rem; }
+    .invoice-brand img { width: 52px; height: 52px; object-fit: contain; }
+    .invoice-brand h1 { margin: 0; font-size: 1.35rem; color: #0a3e92; }
+    .invoice-brand p { margin: 0.2rem 0 0; color: #64748b; font-size: 0.85rem; }
+    .invoice-title { text-align: right; }
+    .invoice-title h2 { margin: 0; color: #111827; font-size: 1.7rem; }
+    .invoice-title p { margin: 0.35rem 0 0; color: #475569; font-weight: 600; }
+    .invoice-body { padding: 1rem 1.5rem 1.5rem; }
+    .invoice-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; padding: 0.75rem 0; border-bottom: 1px solid #94a3b8; }
+    .invoice-panel { padding: 0; border: 0; border-radius: 0; }
+    .invoice-panel h3 { display: none; }
+    .invoice-panel dl { margin: 0; }
+    .invoice-panel dt { color: #64748b; font-size: 0.85rem; }
+    .invoice-panel dd { margin-bottom: 0.35rem; font-weight: 600; color: #1e293b; }
+    .invoice-table { width: 100%; border-collapse: collapse; margin-bottom: 1.25rem; }
+    .invoice-table th, .invoice-table td { padding: 0.8rem 0.75rem; border-bottom: 1px solid #e2e8f0; }
+    .invoice-table th { background: #f1f5f9; color: #111827; text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; border-top: 2px solid #111827; border-bottom: 2px solid #111827; }
+    .invoice-table th:not(:first-child), .invoice-table td:not(:first-child) { text-align: right; white-space: nowrap; }
+    .invoice-table .section-row td { background: #fff; border-top: 1px solid #64748b; font-weight: 700; }
+    .invoice-table .subtotal-row td { background: #f8fafc; border-top: 1px solid #94a3b8; font-weight: 700; }
+    .invoice-total { display: flex; justify-content: flex-end; }
+    .invoice-total-box { min-width: 280px; padding: 0.8rem 1.25rem; background: #f8fafc; border: 1px solid #94a3b8; }
+    .invoice-total-box span { color: #475569; }
+    .invoice-total-box strong { float: right; color: #0a3e92; font-size: 1.25rem; }
+    .invoice-summary { width: 360px; max-width: 100%; margin-top: 1.25rem; border: 1px solid #64748b; }
+    .invoice-summary-row { display: flex; justify-content: space-between; padding: 0.35rem 0.65rem; border-bottom: 1px solid #cbd5e1; font-size: 0.85rem; }
+    .invoice-summary-row:last-child { border-bottom: 0; font-weight: 700; }
+    .invoice-footer { display: flex; justify-content: space-between; gap: 2rem; padding: 1.25rem 1.5rem 1.5rem; color: #475569; font-size: 0.8rem; border-top: 1px solid #94a3b8; }
+    @media (max-width: 640px) {
+      .invoice-header, .invoice-toolbar { align-items: flex-start; flex-direction: column; }
+      .invoice-title { text-align: left; }
+      .invoice-parties { grid-template-columns: 1fr; }
+      .invoice-header, .invoice-body { padding: 1.25rem; }
+      .invoice-footer { padding: 1rem 1.25rem; }
+    }
+    @media print {
+      @page { size: A4; margin: 12mm; }
+      body { background: #fff !important; color: #111827; }
+      body::before, nav, .invoice-toolbar, .alert { display: none !important; }
+      .container { max-width: none !important; padding: 0 !important; }
+      .invoice-sheet { max-width: none; border: 0; border-radius: 0; box-shadow: none; }
+      .invoice-header { padding: 0 0 1rem; }
+      .invoice-body { padding: 1.25rem 0; }
+      .invoice-footer { padding: 1rem 0 0; }
+    }
+  </style>
+
+  <div class="invoice-toolbar">
+    <a class="btn btn-outline-secondary" href="{{ url_for('invoices') }}">Back to invoices</a>
+    <button type="button" class="btn btn-primary" onclick="window.print()">Print invoice</button>
+  </div>
+
+  <article class="invoice-sheet">
+    <header class="invoice-header">
+      <div class="invoice-brand">
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="St Gabriel Hospital">
+        <div>
+          <h1>St Gabriel Hospital</h1>
+          <p>Official patient invoice</p>
+        </div>
+      </div>
+      <div class="invoice-title">
+        <h2>INVOICE</h2>
+        <p>{{ visit.invoice_number }}</p>
+      </div>
+    </header>
+
+    <div class="invoice-body">
+      <div class="invoice-parties">
+        <section class="invoice-panel">
+          <dl class="row">
+            <dt class="col-5">Patient name</dt>
+            <dd class="col-7">{{ patient.full_name }}</dd>
+            <dt class="col-5">Patient number</dt>
+            <dd class="col-7">{{ patient.id }}</dd>
+          </dl>
+        </section>
+        <section class="invoice-panel">
+          <dl class="row">
+            <dt class="col-5">Invoice number</dt>
+            <dd class="col-7">{{ visit.invoice_number }}</dd>
+            <dt class="col-5">Date</dt>
+            <dd class="col-7">{{ visit.started_at.strftime('%d %b %Y') if visit.started_at else 'N/A' }}</dd>
+            <dt class="col-5">Payment method</dt>
+            <dd class="col-7">{{ visit.payment_method or 'N/A' }}</dd>
+          </dl>
+        </section>
+      </div>
+
+      <table class="invoice-table">
+        <thead>
+          <tr><th>Description</th><th>Units</th><th>Unit price</th><th>Amount</th></tr>
+        </thead>
+        <tbody>
+          <tr class="section-row"><td colspan="4">Pharmacy</td></tr>
+          <tr>
+            {% if pharmacy_prescriptions %}
+              <td colspan="4" class="p-0">
+                <table class="invoice-table mb-0">
+                  <tbody>
+                  {% for prescription in pharmacy_prescriptions %}
+                    <tr>
+                      <td>{{ prescription.medication }}</td>
+                      <td>{{ prescription.dispensed_units }}</td>
+                      <td>{{ '%.2f'|format(prescription.unit_price) }}</td>
+                      <td>{{ '%.2f'|format(prescription.pharmacy_amount) }}</td>
+                    </tr>
+                  {% endfor %}
+                  <tr class="subtotal-row">
+                    <td colspan="3">Pharmacy subtotal</td>
+                    <td>{{ '%.2f'|format(pharmacy_total) }}</td>
+                  </tr>
+                </tbody>
+                </table>
+              </td>
+            {% else %}
+              <td colspan="3">No pharmacy items</td>
+              <td>{{ 'Pending' if has_pending_pharmacy_charge else '0.00' }}</td>
+            {% endif %}
+          </tr>
+          <tr class="section-row"><td colspan="4">Consultation</td></tr>
+          <tr>
+            <td>Consultation fee</td>
+            <td>1</td>
+            <td>{{ '%.2f'|format(visit.consultation_amount) if visit.consultation_amount is not none else 'Pending' }}</td>
+            <td>{{ '%.2f'|format(visit.consultation_amount) if visit.consultation_amount is not none else 'Pending' }}</td>
+          </tr>
+          <tr class="subtotal-row">
+            <td colspan="3">Consultation subtotal</td>
+            <td>{{ '%.2f'|format(visit.consultation_amount) if visit.consultation_amount is not none else 'Pending' }}</td>
+          </tr>
+          <tr class="total-row">
+            <td colspan="3">TOTAL BILL</td>
+            <td>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="invoice-summary">
+        <div class="invoice-summary-row"><span>Total bill</span><strong>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</strong></div>
+        <div class="invoice-summary-row"><span>Payments &amp; refunds</span><span>0.00</span></div>
+        <div class="invoice-summary-row"><span>Waivers</span><span>0.00</span></div>
+        <div class="invoice-summary-row"><span>Balance</span><strong>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</strong></div>
+        <div class="invoice-summary-row"><span>Account balance</span><strong>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</strong></div>
+      </div>
+    </div>
+
+    <footer class="invoice-footer">
+      <span>Patient: <strong>{{ patient.full_name }}</strong><br>Signature: ....................................</span>
+      <span>Patient signature: ....................................<br>Date: ....................................</span>
+    </footer>
+  </article>
+  </div>
+{% endblock %}

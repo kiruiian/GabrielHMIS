@@ -50,12 +50,14 @@ PATIENT_ACCESS_ROLES = {'receptionist', 'doctor', 'nurse', 'triage', 'records'}
 REGISTRATION_ROLES = {'receptionist', 'records'}
 VISIT_MANAGEMENT_ROLES = {'receptionist', 'records'}
 QUEUE_ASSIGNMENT_ROLES = {'receptionist', 'records'}
-CLINICAL_READ_ROLES = {'doctor', 'nurse', 'triage', 'records'}
+CLINICAL_READ_ROLES = {'doctor', 'nurse', 'triage', 'records', 'pharmacist'}
+INVOICE_VIEW_ROLES = {'accounts', 'admin', 'receptionist', 'records'}
 VITALS_ENTRY_ROLES = {'nurse', 'triage'}
 NOTE_ENTRY_ROLES = {'doctor', 'nurse'}
 SERVICE_REQUEST_ROLES = {'doctor'}
 PHARMACY_ROLES = {'pharmacist'}
 PAYMENT_METHODS = {'SHA', 'SHA FFS', 'CASH PAYER', 'BROWNS PLANTATIONS', 'BRITAM', 'JUBILEE'}
+CONSULTATION_FEES = {'New Visit': 1000, 'Revisit': 500}
 ACTIVE_QUEUE_STATUSES = {'queued', 'in_progress'}
 
 def get_queue_identifier(patient_id):
@@ -71,6 +73,12 @@ def get_queue_identifier(patient_id):
     labels = {'queued': 'Waiting', 'with_nurse': 'Nurse', 'with_doctor': 'Doctor', 'in_progress': 'Doctor'}
     status = latest_queue.status if latest_queue else 'queued'
     return {'label': labels.get(status, 'Waiting'), 'key': status, 'detail': 'Current queue stage'}
+
+
+def determine_visit_type(patient):
+    """Classify the visit based on whether this patient has a previous visit record."""
+    previous_visits = Visit.query.filter_by(patient_id=patient.id).count()
+    return 'Revisit' if patient.visit_type == 'Revisit' or previous_visits > 0 else 'New Visit'
 
 # ====================== USER MODEL ======================
 class User(db.Model):
@@ -130,6 +138,7 @@ class Visit(db.Model):
     visit_type = db.Column(db.String(20))
     payment_method = db.Column(db.String(80))
     invoice_number = db.Column(db.String(80))
+    consultation_amount = db.Column(db.Numeric(10, 2))
     status = db.Column(db.String(30), default='registered')  # registered → with_nurse → with_doctor → completed
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
     completed_at = db.Column(db.DateTime, nullable=True)
@@ -209,6 +218,7 @@ class ServiceRequest(db.Model):
 class Prescription(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
+    visit_id = db.Column(db.Integer, db.ForeignKey('visit.id'))
     item_type = db.Column(db.String(30), default='Medicine', nullable=False)
     medication = db.Column(db.String(120), nullable=False)
     identifier = db.Column(db.String(80))
@@ -232,8 +242,14 @@ class Prescription(db.Model):
     prescribed_by = db.Column(db.String(100), nullable=False)
     prescribed_at = db.Column(db.DateTime, default=datetime.utcnow)
     status = db.Column(db.String(20), default='prescribed')
+    dispensed_by = db.Column(db.String(100))
+    dispensed_at = db.Column(db.DateTime)
+    dispensed_units = db.Column(db.Integer)
+    unit_price = db.Column(db.Numeric(10, 2))
+    pharmacy_amount = db.Column(db.Numeric(10, 2))
 
     patient = db.relationship('Patient', backref=db.backref('prescriptions', lazy=True, order_by=prescribed_at.desc()))
+    visit = db.relationship('Visit', backref=db.backref('prescriptions', lazy=True))
 
 
 class AuditLog(db.Model):
@@ -282,6 +298,9 @@ def inject_csrf_token():
 @app.before_request
 def validate_csrf_token():
     if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        return None
+
+    if request.endpoint == 'login' and request.method == 'POST':
         return None
 
     supplied_token = request.headers.get('X-CSRF-Token') if request.is_json else request.form.get('csrf_token')
@@ -346,6 +365,17 @@ def ensure_schema():
             ))
         if 'completed_at' not in visit_columns:
             db.session.execute(text('ALTER TABLE visit ADD COLUMN completed_at DATETIME'))
+        if 'consultation_amount' not in visit_columns:
+            db.session.execute(text('ALTER TABLE visit ADD COLUMN consultation_amount NUMERIC(10, 2)'))
+        visits_with_old_numbers = db.session.execute(text(
+            "SELECT id FROM visit WHERE invoice_number IS NULL "
+            "OR invoice_number = '' OR invoice_number NOT LIKE 'INV-%'"
+        )).scalars().all()
+        for visit_id in visits_with_old_numbers:
+            db.session.execute(
+                text('UPDATE visit SET invoice_number = :invoice_number WHERE id = :visit_id'),
+                {'invoice_number': f'INV-{visit_id:06d}', 'visit_id': visit_id}
+            )
         vital_columns = {
             row[1] for row in db.session.execute(text('PRAGMA table_info(vital_signs)'))
         }
@@ -368,10 +398,24 @@ def ensure_schema():
             'end_date': 'ALTER TABLE prescription ADD COLUMN end_date DATE',
             'as_needed': 'ALTER TABLE prescription ADD COLUMN as_needed BOOLEAN DEFAULT 0',
             'take_as_prescribed': 'ALTER TABLE prescription ADD COLUMN take_as_prescribed BOOLEAN DEFAULT 1',
+            'dispensed_by': 'ALTER TABLE prescription ADD COLUMN dispensed_by VARCHAR(100)',
+            'dispensed_at': 'ALTER TABLE prescription ADD COLUMN dispensed_at DATETIME',
+            'visit_id': 'ALTER TABLE prescription ADD COLUMN visit_id INTEGER',
+            'dispensed_units': 'ALTER TABLE prescription ADD COLUMN dispensed_units INTEGER',
+            'unit_price': 'ALTER TABLE prescription ADD COLUMN unit_price NUMERIC(10, 2)',
+            'pharmacy_amount': 'ALTER TABLE prescription ADD COLUMN pharmacy_amount NUMERIC(10, 2)',
         }
         for column, migration in prescription_migrations.items():
             if column not in prescription_columns:
                 db.session.execute(text(migration))
+        db.session.execute(text(
+            "UPDATE prescription SET visit_id = ("
+            "SELECT visit.id FROM visit "
+            "WHERE visit.patient_id = prescription.patient_id "
+            "AND visit.started_at <= prescription.prescribed_at "
+            "ORDER BY visit.started_at DESC LIMIT 1) "
+            "WHERE prescription.visit_id IS NULL"
+        ))
         db.session.commit()
 
 with app.app_context():
@@ -591,8 +635,13 @@ def patient_card(national_id):
             if not all([medication, dosage, frequency, duration]) or rx_take not in {1, 2, 3}:
                 flash('Medication, dosage, frequency, and duration are required.', 'danger')
                 return redirect(url_for('patient_card', national_id=national_id))
+            active_visit = Visit.query.filter(
+                Visit.patient_id == patient.id,
+                db.or_(Visit.status != 'completed', Visit.status.is_(None))
+            ).order_by(Visit.started_at.desc()).first()
             prescription = Prescription(
                 patient_id=patient.id,
+                visit_id=active_visit.id if active_visit else None,
                 item_type=request.form.get('item_type', 'Medicine').strip() or 'Medicine',
                 medication=medication,
                 identifier=request.form.get('identifier', '').strip() or None,
@@ -641,8 +690,21 @@ def patient_card(national_id):
     requests = ServiceRequest.query.filter_by(patient_id=patient.id).order_by(ServiceRequest.requested_at.desc()).limit(20).all()
     active_visit = Visit.query.filter(
         Visit.patient_id == patient.id,
-        Visit.status != 'completed'
+        db.or_(Visit.status != 'completed', Visit.status.is_(None))
     ).order_by(Visit.started_at.desc()).first()
+
+    if active_visit and user_role in {'doctor', 'admin'} and active_visit.consultation_amount is None:
+        active_visit.consultation_amount = CONSULTATION_FEES.get(active_visit.visit_type or 'New Visit', 1000)
+        if not active_visit.invoice_number:
+            active_visit.invoice_number = f'INV-{active_visit.id:06d}'
+        audit(
+            'consultation_billed',
+            'visit',
+            active_visit.id,
+            f'amount={active_visit.consultation_amount}; visit_type={active_visit.visit_type or "New Visit"}'
+        )
+        db.session.commit()
+        flash('Consultation billing has been updated on the invoice.', 'success')
 
     return render_template('patient_card.html', 
                          patient=patient, 
@@ -679,7 +741,7 @@ def complete_visit(national_id):
 @app.route('/outpatient-queue')
 @login_required(roles=CLINICAL_READ_ROLES | QUEUE_ASSIGNMENT_ROLES)
 def outpatient_queue():
-    visible_statuses = {'queued', 'with_doctor', 'in_progress'} if session.get('role') in {'doctor', 'admin'} else {'queued'}
+    visible_statuses = {'queued', 'with_doctor', 'in_progress'}
     queue_entries = QueueEntry.query.filter(QueueEntry.status.in_(visible_statuses)).order_by(QueueEntry.queued_at.desc()).all()
     for entry in queue_entries:
         entry.queue_identifier = get_queue_identifier(entry.patient_id)
@@ -771,13 +833,79 @@ def records():
     patients_list = query.order_by(Patient.registration_date.desc()).limit(50).all()
     return render_template('records.html', patients=patients_list, national_id=national_id, phone=phone)
 
+@app.route('/invoices')
+@login_required(roles=INVOICE_VIEW_ROLES)
+def invoices():
+    start_date = request.args.get('start_date', '').strip()
+    end_date = request.args.get('end_date', '').strip()
+
+    query = Visit.query.filter(Visit.invoice_number.isnot(None), Visit.invoice_number != '')
+
+    if start_date:
+        try:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+            query = query.filter(Visit.started_at >= start_dt)
+        except ValueError:
+            flash('Please enter a valid start date.', 'danger')
+            start_date = ''
+
+    if end_date:
+        try:
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+            query = query.filter(Visit.started_at <= end_dt + timedelta(days=1))
+        except ValueError:
+            flash('Please enter a valid end date.', 'danger')
+            end_date = ''
+
+    invoice_rows = []
+    for visit in query.order_by(Visit.started_at.desc()).all():
+        invoice_rows.append({
+            'visit': visit,
+            'patient': visit.patient,
+        })
+
+    return render_template('invoices.html', invoices=invoice_rows, start_date=start_date, end_date=end_date)
+
+@app.route('/invoices/<int:visit_id>')
+@login_required(roles=INVOICE_VIEW_ROLES)
+def invoice_detail(visit_id):
+    visit = Visit.query.filter(
+        Visit.id == visit_id,
+        Visit.invoice_number.isnot(None),
+        Visit.invoice_number != ''
+    ).first_or_404()
+    pharmacy_prescriptions = Prescription.query.filter_by(visit_id=visit.id).filter(
+        Prescription.status == 'dispensed',
+        Prescription.pharmacy_amount.isnot(None)
+    ).order_by(Prescription.dispensed_at.asc()).all()
+    pharmacy_total = sum(float(item.pharmacy_amount or 0) for item in pharmacy_prescriptions)
+    has_pending_pharmacy_charge = Prescription.query.filter(
+        Prescription.visit_id == visit.id,
+        Prescription.status == 'dispensed',
+        Prescription.pharmacy_amount.is_(None)
+    ).first() is not None
+    consultation_total = float(visit.consultation_amount) if visit.consultation_amount is not None else None
+    invoice_total = (
+        consultation_total + pharmacy_total
+        if consultation_total is not None and not has_pending_pharmacy_charge
+        else None
+    )
+    return render_template(
+        'invoice_detail.html',
+        visit=visit,
+        patient=visit.patient,
+        pharmacy_prescriptions=pharmacy_prescriptions,
+        pharmacy_total=pharmacy_total,
+        has_pending_pharmacy_charge=has_pending_pharmacy_charge,
+        invoice_total=invoice_total,
+    )
+
 @app.route('/visit/start/<national_id>', methods=['GET', 'POST'])
 @login_required(roles=VISIT_MANAGEMENT_ROLES)
 def start_visit(national_id):
     patient = Patient.query.filter_by(national_id=national_id).first_or_404()
     if request.method == 'POST':
         payment_method = request.form.get('payment_method', '').strip()
-        invoice_number = request.form.get('invoice_number', '').strip()
         if payment_method not in PAYMENT_METHODS:
             flash('Please choose a valid payment method.', 'danger')
             return redirect(url_for('start_visit', national_id=national_id))
@@ -789,11 +917,12 @@ def start_visit(national_id):
             flash('This patient already has an active queue entry.', 'warning')
             return redirect(url_for('outpatient_queue'))
 
-        visit_type = 'Revisit' if patient.visit_type == 'Revisit' else 'New Visit'
-        visit = Visit(patient_id=patient.id, visit_type=visit_type, payment_method=payment_method, invoice_number=invoice_number)
-        patient.visit_type = 'Revisit'
+        visit_type = determine_visit_type(patient)
+        visit = Visit(patient_id=patient.id, visit_type=visit_type, payment_method=payment_method)
+        patient.visit_type = 'Revisit' if visit_type == 'Revisit' else 'New Visit'
         db.session.add(visit)
         db.session.flush()
+        visit.invoice_number = f'INV-{visit.id:06d}'
         queue = QueueEntry(visit_id=visit.id, patient_id=patient.id, doctor=None, status='queued')
         db.session.add(queue)
         db.session.flush()
@@ -810,14 +939,11 @@ def queue_assign(queue_id):
     doctors = User.query.filter_by(role='doctor').order_by(User.full_name).all()
     if request.method == 'POST':
         doctor = request.form.get('doctor', '').strip()
-        invoice_number = request.form.get('invoice_number', '').strip()
         valid_doctors = {staff_member.full_name for staff_member in doctors}
         if doctor and doctor not in valid_doctors:
             flash('Please assign a registered doctor.', 'danger')
             return redirect(url_for('queue_assign', queue_id=queue.id))
         queue.doctor = doctor
-        if queue.visit:
-            queue.visit.invoice_number = invoice_number
         audit('queue_updated', 'queue_entry', queue.id, f'doctor={doctor or "unassigned"}')
         db.session.commit()
         flash('Queue updated', 'success')
@@ -860,7 +986,13 @@ def dashboard_stats():
 @login_required(roles=PHARMACY_ROLES)
 def pharmacy_queue():
     prescriptions = Prescription.query.filter(
-        Prescription.status.in_({'prescribed', 'processing'})
+        db.or_(
+            Prescription.status.in_({'prescribed', 'processing'}),
+            db.and_(
+                Prescription.status == 'dispensed',
+                Prescription.pharmacy_amount.is_(None)
+            )
+        )
     ).order_by(Prescription.prescribed_at.asc()).all()
     response = app.make_response(render_template('pharmacy.html', prescriptions=prescriptions))
     response.headers['Cache-Control'] = 'no-store, max-age=0'
@@ -871,8 +1003,40 @@ def pharmacy_queue():
 @login_required(roles=PHARMACY_ROLES)
 def dispense_prescription(prescription_id):
     prescription = Prescription.query.get_or_404(prescription_id)
+    is_billing_completion = prescription.status == 'dispensed' and prescription.pharmacy_amount is None
+    if prescription.status == 'dispensed' and not is_billing_completion:
+        flash(f'{prescription.medication} has already been dispensed.', 'warning')
+        return redirect(url_for('pharmacy_queue'))
+
+    try:
+        dispensed_units = int(request.form.get('dispensed_units', '').strip())
+        unit_price = float(request.form.get('unit_price', '').strip())
+    except (TypeError, ValueError):
+        flash('Enter valid units dispensed and price per unit.', 'danger')
+        return redirect(url_for('pharmacy_queue'))
+    if dispensed_units <= 0 or unit_price < 0:
+        flash('Units must be greater than zero and price cannot be negative.', 'danger')
+        return redirect(url_for('pharmacy_queue'))
+
     prescription.status = 'dispensed'
-    audit('prescription_dispensed', 'prescription', prescription.id, f'patient_id={prescription.patient_id}')
+    prescription.dispensed_by = session.get('full_name', session.get('username', 'Pharmacist'))
+    prescription.dispensed_at = datetime.utcnow()
+    prescription.dispensed_units = dispensed_units
+    prescription.unit_price = unit_price
+    prescription.pharmacy_amount = round(dispensed_units * unit_price, 2)
+    pharmacy_request = ServiceRequest.query.filter(
+        ServiceRequest.patient_id == prescription.patient_id,
+        ServiceRequest.service_type == 'Pharmacy',
+        ServiceRequest.status.in_({'Pending', 'processing', 'in_progress'})
+    ).order_by(ServiceRequest.requested_at.desc()).first()
+    if pharmacy_request:
+        pharmacy_request.status = 'Completed'
+    audit(
+        'pharmacy_charge_recorded' if is_billing_completion else 'prescription_dispensed',
+        'prescription',
+        prescription.id,
+        f'patient_id={prescription.patient_id}; units={dispensed_units}; amount={prescription.pharmacy_amount}; dispensed_by={prescription.dispensed_by}'
+    )
     db.session.commit()
     flash(f'{prescription.medication} marked as dispensed.', 'success')
     return redirect(url_for('pharmacy_queue'))
@@ -892,7 +1056,6 @@ def register_patient():
         gender = request.form.get('gender', '').strip()
         phone = request.form.get('phone', '').strip()
         address = request.form.get('address', '')
-        visit_type = request.form.get('visit_type', 'New Visit')
         national_id = request.form.get('national_id', '').strip()
 
         if not first_name:
@@ -903,9 +1066,6 @@ def register_patient():
             return redirect(url_for("register_patient"))
         if gender not in {'', 'Male', 'Female', 'Other'}:
             flash("Please choose a valid gender.", "danger")
-            return redirect(url_for("register_patient"))
-        if visit_type not in {'New Visit', 'Revisit'}:
-            flash("Please choose a valid visit type.", "danger")
             return redirect(url_for("register_patient"))
 
         combined_name = f"{first_name} {other_names}".strip()
@@ -918,7 +1078,7 @@ def register_patient():
             gender=gender,
             phone=phone,
             address=address,
-            visit_type=visit_type
+            visit_type='New Visit'
         )
 
         try:
@@ -932,7 +1092,7 @@ def register_patient():
             return redirect(url_for('register_patient', national_id=national_id))
 
         flash(f'Patient {new_patient.full_name} registered successfully! National ID: {new_patient.national_id}', 'success')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('patient_details', national_id=new_patient.national_id))
     
     pre_national_id = request.args.get('national_id', '').strip()
     return render_template('register.html', national_id=pre_national_id)
