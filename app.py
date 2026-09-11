@@ -146,6 +146,18 @@ class Visit(db.Model):
     patient = db.relationship('Patient', backref=db.backref('visits', lazy=True))
 
 
+class InvoicePayment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    visit_id = db.Column(db.Integer, db.ForeignKey('visit.id'), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    payment_method = db.Column(db.String(80), nullable=False)
+    received_by = db.Column(db.String(100), nullable=False)
+    received_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    notes = db.Column(db.String(255))
+
+    visit = db.relationship('Visit', backref=db.backref('payments', lazy=True, order_by=received_at.desc()))
+
+
 class QueueEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     visit_id = db.Column(db.Integer, db.ForeignKey('visit.id'), nullable=False)
@@ -250,6 +262,15 @@ class Prescription(db.Model):
 
     patient = db.relationship('Patient', backref=db.backref('prescriptions', lazy=True, order_by=prescribed_at.desc()))
     visit = db.relationship('Visit', backref=db.backref('prescriptions', lazy=True))
+
+
+class MedicineStock(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    medication = db.Column(db.String(120), unique=True, nullable=False)
+    quantity = db.Column(db.Integer, default=0, nullable=False)
+    unit_price = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+    reorder_level = db.Column(db.Integer, default=10, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class AuditLog(db.Model):
@@ -838,6 +859,7 @@ def records():
 def invoices():
     start_date = request.args.get('start_date', '').strip()
     end_date = request.args.get('end_date', '').strip()
+    status_filter = request.args.get('status', '').strip()
 
     query = Visit.query.filter(Visit.invoice_number.isnot(None), Visit.invoice_number != '')
 
@@ -859,12 +881,42 @@ def invoices():
 
     invoice_rows = []
     for visit in query.order_by(Visit.started_at.desc()).all():
+        pharmacy_total = sum(
+            float(item.pharmacy_amount or 0)
+            for item in Prescription.query.filter_by(visit_id=visit.id).filter(
+                Prescription.status == 'dispensed',
+                Prescription.pharmacy_amount.isnot(None)
+            ).all()
+        )
+        has_pending_pharmacy_charge = Prescription.query.filter(
+            Prescription.visit_id == visit.id,
+            Prescription.status == 'dispensed',
+            Prescription.pharmacy_amount.is_(None)
+        ).first() is not None
+        consultation_total = float(visit.consultation_amount) if visit.consultation_amount is not None else None
+        invoice_total = (
+            consultation_total + pharmacy_total
+            if consultation_total is not None and not has_pending_pharmacy_charge
+            else None
+        )
+        paid_total = sum(float(payment.amount) for payment in InvoicePayment.query.filter_by(visit_id=visit.id).all())
+        payment_status = (
+            'Pending billing' if invoice_total is None else
+            'Paid' if paid_total >= invoice_total else
+            'Partially paid' if paid_total > 0 else
+            'Unpaid'
+        )
+        balance = max(invoice_total - paid_total, 0) if invoice_total is not None else None
+        if status_filter and payment_status != status_filter:
+            continue
         invoice_rows.append({
             'visit': visit,
             'patient': visit.patient,
+            'payment_status': payment_status,
+            'balance': balance,
         })
 
-    return render_template('invoices.html', invoices=invoice_rows, start_date=start_date, end_date=end_date)
+    return render_template('invoices.html', invoices=invoice_rows, start_date=start_date, end_date=end_date, status_filter=status_filter)
 
 @app.route('/invoices/<int:visit_id>')
 @login_required(roles=INVOICE_VIEW_ROLES)
@@ -890,6 +942,15 @@ def invoice_detail(visit_id):
         if consultation_total is not None and not has_pending_pharmacy_charge
         else None
     )
+    payments = InvoicePayment.query.filter_by(visit_id=visit.id).order_by(InvoicePayment.received_at.desc()).all()
+    paid_total = sum(float(payment.amount) for payment in payments)
+    balance = max(invoice_total - paid_total, 0) if invoice_total is not None else None
+    payment_status = (
+        'Pending billing' if invoice_total is None else
+        'Paid' if paid_total >= invoice_total else
+        'Partially paid' if paid_total > 0 else
+        'Unpaid'
+    )
     return render_template(
         'invoice_detail.html',
         visit=visit,
@@ -898,7 +959,75 @@ def invoice_detail(visit_id):
         pharmacy_total=pharmacy_total,
         has_pending_pharmacy_charge=has_pending_pharmacy_charge,
         invoice_total=invoice_total,
+        payments=payments,
+        paid_total=paid_total,
+        balance=balance,
+        payment_status=payment_status,
     )
+
+
+@app.route('/invoices/<int:visit_id>/payments', methods=['POST'])
+@login_required(roles={'accounts'})
+def record_invoice_payment(visit_id):
+    visit = Visit.query.filter(
+        Visit.id == visit_id,
+        Visit.invoice_number.isnot(None),
+        Visit.invoice_number != ''
+    ).first_or_404()
+    try:
+        amount = float(request.form.get('amount', '').strip())
+    except (TypeError, ValueError):
+        flash('Enter a valid payment amount.', 'danger')
+        return redirect(url_for('invoice_detail', visit_id=visit.id))
+    payment_method = request.form.get('payment_method', '').strip()
+    if amount <= 0 or payment_method not in PAYMENT_METHODS:
+        flash('Choose a valid payment method and enter an amount greater than zero.', 'danger')
+        return redirect(url_for('invoice_detail', visit_id=visit.id))
+
+    pharmacy_total = sum(
+        float(item.pharmacy_amount or 0)
+        for item in Prescription.query.filter_by(visit_id=visit.id).filter(
+            Prescription.status == 'dispensed',
+            Prescription.pharmacy_amount.isnot(None)
+        ).all()
+    )
+    has_pending_pharmacy_charge = Prescription.query.filter(
+        Prescription.visit_id == visit.id,
+        Prescription.status == 'dispensed',
+        Prescription.pharmacy_amount.is_(None)
+    ).first() is not None
+    consultation_total = float(visit.consultation_amount) if visit.consultation_amount is not None else None
+    invoice_total = (
+        consultation_total + pharmacy_total
+        if consultation_total is not None and not has_pending_pharmacy_charge
+        else None
+    )
+    paid_total = sum(float(payment.amount) for payment in InvoicePayment.query.filter_by(visit_id=visit.id).all())
+    if invoice_total is None:
+        flash('Complete billing before recording a payment.', 'warning')
+        return redirect(url_for('invoice_detail', visit_id=visit.id))
+    if amount > invoice_total - paid_total:
+        flash(f'Payment exceeds the outstanding balance of {invoice_total - paid_total:.2f}.', 'danger')
+        return redirect(url_for('invoice_detail', visit_id=visit.id))
+
+    db.session.add(InvoicePayment(
+        visit_id=visit.id,
+        amount=amount,
+        payment_method=payment_method,
+        received_by=session.get('full_name', session.get('username', 'Accounts')),
+        notes=request.form.get('notes', '').strip()[:255] or None,
+    ))
+    audit('invoice_payment_recorded', 'visit', visit.id, f'amount={amount}; payment_method={payment_method}')
+    db.session.commit()
+    flash('Payment recorded successfully.', 'success')
+    return redirect(url_for('invoice_detail', visit_id=visit.id))
+
+
+@app.route('/payments/<int:payment_id>/receipt')
+@login_required(roles=INVOICE_VIEW_ROLES)
+def payment_receipt(payment_id):
+    payment = InvoicePayment.query.get_or_404(payment_id)
+    return render_template('payment_receipt.html', payment=payment, visit=payment.visit, patient=payment.visit.patient)
 
 @app.route('/visit/start/<national_id>', methods=['GET', 'POST'])
 @login_required(roles=VISIT_MANAGEMENT_ROLES)
@@ -994,9 +1123,57 @@ def pharmacy_queue():
             )
         )
     ).order_by(Prescription.prescribed_at.asc()).all()
-    response = app.make_response(render_template('pharmacy.html', prescriptions=prescriptions))
+    stock_by_name = {
+        item.medication.casefold(): item
+        for item in MedicineStock.query.all()
+    }
+    response = app.make_response(render_template(
+        'pharmacy.html',
+        prescriptions=prescriptions,
+        stock_by_name=stock_by_name,
+    ))
     response.headers['Cache-Control'] = 'no-store, max-age=0'
     return response
+
+
+@app.route('/pharmacy/inventory', methods=['GET', 'POST'])
+@login_required(roles=PHARMACY_ROLES)
+def pharmacy_inventory():
+    if request.method == 'POST':
+        medication = request.form.get('medication', '').strip()
+        try:
+            quantity = int(request.form.get('quantity', '').strip())
+            unit_price = float(request.form.get('unit_price', '').strip())
+            reorder_level = int(request.form.get('reorder_level', '10').strip())
+        except (TypeError, ValueError):
+            flash('Enter valid stock quantity, price, and reorder level.', 'danger')
+            return redirect(url_for('pharmacy_inventory'))
+        if not medication or quantity < 0 or unit_price < 0 or reorder_level < 0:
+            flash('Medicine name is required and stock values cannot be negative.', 'danger')
+            return redirect(url_for('pharmacy_inventory'))
+
+        stock = MedicineStock.query.filter(db.func.lower(MedicineStock.medication) == medication.casefold()).first()
+        if stock:
+            stock.quantity += quantity
+            stock.unit_price = unit_price
+            stock.reorder_level = reorder_level
+            action = 'updated'
+        else:
+            stock = MedicineStock(
+                medication=medication,
+                quantity=quantity,
+                unit_price=unit_price,
+                reorder_level=reorder_level,
+            )
+            db.session.add(stock)
+            action = 'added'
+        audit('medicine_stock_updated', 'medicine_stock', stock.id or 'new', f'medication={medication}; quantity_added={quantity}')
+        db.session.commit()
+        flash(f'{medication} stock {action}.', 'success')
+        return redirect(url_for('pharmacy_inventory'))
+
+    stock_items = MedicineStock.query.order_by(MedicineStock.medication.asc()).all()
+    return render_template('pharmacy_inventory.html', stock_items=stock_items)
 
 
 @app.route('/pharmacy/<int:prescription_id>/dispense', methods=['POST'])
@@ -1018,12 +1195,23 @@ def dispense_prescription(prescription_id):
         flash('Units must be greater than zero and price cannot be negative.', 'danger')
         return redirect(url_for('pharmacy_queue'))
 
+    stock = MedicineStock.query.filter(
+        db.func.lower(MedicineStock.medication) == prescription.medication.casefold()
+    ).first()
+    if not stock or stock.quantity < dispensed_units:
+        available = stock.quantity if stock else 0
+        flash(f'Insufficient stock for {prescription.medication}. Available: {available}.', 'danger')
+        return redirect(url_for('pharmacy_queue'))
+    if unit_price == 0 and stock.unit_price is not None:
+        unit_price = float(stock.unit_price)
+
     prescription.status = 'dispensed'
     prescription.dispensed_by = session.get('full_name', session.get('username', 'Pharmacist'))
     prescription.dispensed_at = datetime.utcnow()
     prescription.dispensed_units = dispensed_units
     prescription.unit_price = unit_price
     prescription.pharmacy_amount = round(dispensed_units * unit_price, 2)
+    stock.quantity -= dispensed_units
     pharmacy_request = ServiceRequest.query.filter(
         ServiceRequest.patient_id == prescription.patient_id,
         ServiceRequest.service_type == 'Pharmacy',

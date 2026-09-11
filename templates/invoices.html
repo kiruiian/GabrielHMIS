@@ -20,6 +20,15 @@
           <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
         </div>
         <div class="col-md-4">
+          <label class="form-label">Payment status</label>
+          <select name="status" class="form-select">
+            <option value="">All statuses</option>
+            {% for status in ['Unpaid', 'Partially paid', 'Paid', 'Pending billing'] %}
+              <option value="{{ status }}"{% if status_filter == status %} selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
           <button type="submit" class="btn btn-primary">Filter</button>
           <a href="{{ url_for('invoices') }}" class="btn btn-outline-secondary">Reset</a>
         </div>
@@ -37,6 +46,8 @@
               <th>National ID</th>
               <th>Invoice / CR</th>
               <th>Payment method</th>
+              <th>Payment status</th>
+              <th>Balance</th>
               <th>Visit type</th>
               <th>Visit date</th>
               <th>Action</th>
@@ -50,6 +61,8 @@
                   <td>{{ item.patient.national_id }}</td>
                   <td><a href="{{ url_for('invoice_detail', visit_id=item.visit.id) }}">{{ item.visit.invoice_number or 'N/A' }}</a></td>
                   <td>{{ item.visit.payment_method or 'N/A' }}</td>
+                  <td><span class="badge {% if item.payment_status == 'Paid' %}bg-success{% elif item.payment_status == 'Partially paid' %}bg-warning text-dark{% elif item.payment_status == 'Pending billing' %}bg-secondary{% else %}bg-danger{% endif %}">{{ item.payment_status }}</span></td>
+                  <td>{{ '%.2f'|format(item.balance) if item.balance is not none else 'Pending' }}</td>
                   <td>{{ item.visit.visit_type or 'New Visit' }}</td>
                   <td>{{ item.visit.started_at.strftime('%Y-%m-%d %H:%M') if item.visit.started_at else 'N/A' }}</td>
                   <td><a href="{{ url_for('invoice_detail', visit_id=item.visit.id) }}" class="btn btn-sm btn-outline-primary">View</a></td>
@@ -57,7 +70,7 @@
               {% endfor %}
             {% else %}
               <tr>
-                <td colspan="7" class="text-center text-muted py-4">No invoices found for the selected date range.</td>
+                <td colspan="9" class="text-center text-muted py-4">No invoices found for the selected date range.</td>
               </tr>
             {% endif %}
           </tbody>

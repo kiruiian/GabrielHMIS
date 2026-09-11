@@ -32,6 +32,9 @@
     .invoice-summary { width: 360px; max-width: 100%; margin-top: 1.25rem; border: 1px solid #64748b; }
     .invoice-summary-row { display: flex; justify-content: space-between; padding: 0.35rem 0.65rem; border-bottom: 1px solid #cbd5e1; font-size: 0.85rem; }
     .invoice-summary-row:last-child { border-bottom: 0; font-weight: 700; }
+    .payment-panel { max-width: 520px; margin-top: 1.25rem; padding: 1rem; border: 1px solid #cbd5e1; background: #f8fafc; }
+    .payment-history { margin-top: 1rem; font-size: 0.85rem; }
+    .payment-status { display: inline-block; margin-bottom: 1rem; padding: 0.35rem 0.7rem; border: 1px solid #94a3b8; font-size: 0.8rem; font-weight: 700; }
     .invoice-footer { display: flex; justify-content: space-between; gap: 2rem; padding: 1.25rem 1.5rem 1.5rem; color: #475569; font-size: 0.8rem; border-top: 1px solid #94a3b8; }
     @media (max-width: 640px) {
       .invoice-header, .invoice-toolbar { align-items: flex-start; flex-direction: column; }
@@ -144,12 +147,29 @@
       </table>
 
       <div class="invoice-summary">
+        <div class="invoice-summary-row"><span>Payment status</span><strong>{{ payment_status }}</strong></div>
         <div class="invoice-summary-row"><span>Total bill</span><strong>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</strong></div>
-        <div class="invoice-summary-row"><span>Payments &amp; refunds</span><span>0.00</span></div>
+        <div class="invoice-summary-row"><span>Payments &amp; refunds</span><span>{{ '%.2f'|format(paid_total) }}</span></div>
         <div class="invoice-summary-row"><span>Waivers</span><span>0.00</span></div>
-        <div class="invoice-summary-row"><span>Balance</span><strong>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</strong></div>
-        <div class="invoice-summary-row"><span>Account balance</span><strong>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</strong></div>
+        <div class="invoice-summary-row"><span>Balance</span><strong>{{ '%.2f'|format(balance) if balance is not none else 'Pending' }}</strong></div>
+        <div class="invoice-summary-row"><span>Account balance</span><strong>{{ '%.2f'|format(balance) if balance is not none else 'Pending' }}</strong></div>
       </div>
+
+      {% if session.get('role') in ['accounts', 'admin'] %}
+      <section class="payment-panel">
+        <h5 class="mb-3">Record payment</h5>
+        <form method="post" action="{{ url_for('record_invoice_payment', visit_id=visit.id) }}" class="row g-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-md-4"><label class="form-label small">Amount</label><input type="number" name="amount" class="form-control" min="0.01" step="0.01" required></div>
+          <div class="col-md-5"><label class="form-label small">Payment method</label><select name="payment_method" class="form-select" required><option value="">Select method</option>{% for method in ['SHA', 'SHA FFS', 'CASH PAYER', 'BROWNS PLANTATIONS', 'BRITAM', 'JUBILEE'] %}<option>{{ method }}</option>{% endfor %}</select></div>
+          <div class="col-md-3 d-flex align-items-end"><button class="btn btn-primary w-100" type="submit">Record</button></div>
+          <div class="col-12"><label class="form-label small">Notes</label><input type="text" name="notes" class="form-control"></div>
+        </form>
+        {% if payments %}
+        <div class="payment-history"><strong>Payment history</strong>{% for payment in payments %}<div>{{ payment.received_at.strftime('%Y-%m-%d %H:%M') }} · {{ payment.payment_method }} · {{ '%.2f'|format(payment.amount) }} · {{ payment.received_by }} · <a href="{{ url_for('payment_receipt', payment_id=payment.id) }}">Receipt</a></div>{% endfor %}</div>
+        {% endif %}
+      </section>
+      {% endif %}
     </div>
 
     <footer class="invoice-footer">

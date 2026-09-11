@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+  .receipt-toolbar { display: flex; justify-content: space-between; margin-bottom: 1rem; }
+  .receipt-sheet { max-width: 680px; margin: 0 auto; padding: 2rem; background: #fff; border: 1px solid #cbd5e1; }
+  .receipt-header { display: flex; justify-content: space-between; border-bottom: 2px solid #111827; padding-bottom: 1rem; margin-bottom: 1.25rem; }
+  .receipt-header h2 { margin: 0; }
+  .receipt-row { display: flex; justify-content: space-between; padding: 0.55rem 0; border-bottom: 1px solid #e2e8f0; }
+  .receipt-total { margin-top: 1rem; font-size: 1.2rem; font-weight: 700; }
+  @media print { @page { size: A4; margin: 15mm; } body { background: #fff !important; } body::before, nav, .receipt-toolbar, .alert { display: none !important; } .container { max-width: none !important; padding: 0 !important; } .receipt-sheet { border: 0; padding: 0; } }
+</style>
+
+<div class="receipt-toolbar">
+  <a class="btn btn-outline-secondary" href="{{ url_for('invoice_detail', visit_id=visit.id) }}">Back to invoice</a>
+  <button class="btn btn-primary" type="button" onclick="window.print()">Print receipt</button>
+</div>
+
+<article class="receipt-sheet">
+  <header class="receipt-header">
+    <div><h2>St Gabriel Hospital</h2><div class="text-muted">Payment receipt</div></div>
+    <strong>{{ visit.invoice_number }}</strong>
+  </header>
+  <div class="receipt-row"><span>Patient</span><strong>{{ patient.full_name }}</strong></div>
+  <div class="receipt-row"><span>Patient ID</span><strong>{{ patient.id }}</strong></div>
+  <div class="receipt-row"><span>Amount received</span><strong>{{ '%.2f'|format(payment.amount) }}</strong></div>
+  <div class="receipt-row"><span>Payment method</span><strong>{{ payment.payment_method }}</strong></div>
+  <div class="receipt-row"><span>Received by</span><strong>{{ payment.received_by }}</strong></div>
+  <div class="receipt-row"><span>Date</span><strong>{{ payment.received_at.strftime('%Y-%m-%d %H:%M') }}</strong></div>
+  {% if payment.notes %}<div class="receipt-row"><span>Notes</span><strong>{{ payment.notes }}</strong></div>{% endif %}
+  <div class="receipt-total">Payment received: {{ '%.2f'|format(payment.amount) }}</div>
+</article>
+{% endblock %}

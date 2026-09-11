@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-hero page-hero-teal mb-4">
+  <div class="page-hero-content">
+    <div>
+      <div class="eyebrow">Inventory control</div>
+      <h3 class="mb-1 dashboard-title">Medicine Stock</h3>
+      <p class="mb-0 hero-text">Add stock, set prices, and monitor reorder levels.</p>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <h5 class="mb-3">Receive stock</h5>
+    <form method="post" class="row g-3 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4">
+        <label class="form-label">Medicine</label>
+        <input name="medication" class="form-control" required placeholder="Medicine name">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Units received</label>
+        <input type="number" name="quantity" class="form-control" min="0" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Price per unit</label>
+        <input type="number" name="unit_price" class="form-control" min="0" step="0.01" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Reorder level</label>
+        <input type="number" name="reorder_level" class="form-control" min="0" value="10" required>
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-success w-100" type="submit">Save stock</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr><th>Medicine</th><th>Available units</th><th>Unit price</th><th>Reorder level</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {% for item in stock_items %}
+          <tr>
+            <td>{{ item.medication }}</td>
+            <td>{{ item.quantity }}</td>
+            <td>{{ '%.2f'|format(item.unit_price) }}</td>
+            <td>{{ item.reorder_level }}</td>
+            <td>
+              {% if item.quantity <= 0 %}<span class="text-danger">Out of stock</span>
+              {% elif item.quantity <= item.reorder_level %}<span class="text-warning">Low stock</span>
+              {% else %}<span class="text-success">Available</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-muted py-4">No medicines in stock.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
