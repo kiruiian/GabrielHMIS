@@ -205,7 +205,7 @@
                             <div class="d-flex flex-wrap gap-2">
                                 <button type="button" class="btn btn-outline-primary btn-sm service-request-button" data-service="Lab">Send to Lab</button>
                                 <a class="btn btn-outline-success btn-sm" href="#prescriptionForm">Send to Pharmacy</a>
-                                <button type="button" class="btn btn-outline-info btn-sm service-request-button" data-service="Radiology">Send to Radiology</button>
+                                <button type="button" class="btn btn-outline-info btn-sm" id="showRadiologyForm">Send to Radiology</button>
                                 <button type="button" class="btn btn-outline-warning btn-sm service-request-button" data-service="Referral">Send Referral</button>
                             </div>
                         </div>
@@ -341,7 +341,7 @@
                     </div>
                     {% endif %}
                     {% if user_role in ['doctor', 'admin'] %}
-                    <div id="serviceRequestForm" class="service-inline-form mt-3">
+                    <div id="serviceRequestForm" class="service-inline-form mt-3" hidden>
                         <div class="border-top pt-3">
                             <h6 id="serviceRequestTitle">New service request</h6>
                             <form method="POST">
@@ -349,8 +349,41 @@
                                 <input type="hidden" name="action" value="service_request">
                                 <input type="hidden" name="service_type" id="selectedService" value="Lab">
                                 <label class="form-label" for="serviceDescription">Details</label>
-                                <input type="text" name="service_description" id="serviceDescription" class="form-control" placeholder="Tests, imaging, or referral details" required>
+                                <input type="text" name="service_description" id="serviceDescription" class="form-control" placeholder="Tests or referral details" required>
                                 <button type="submit" class="btn btn-primary mt-3">Send request</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div id="radiologyRequestForm" class="service-inline-form mt-3" hidden>
+                        <div class="border-top pt-3">
+                            <h6>Request imaging study</h6>
+                            <form method="POST">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="service_request">
+                                <input type="hidden" name="service_type" value="Radiology">
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label" for="modalitySelect">Modality</label>
+                                        <select name="modality" id="modalitySelect" class="form-select" required>
+                                            <option value="">Select modality…</option>
+                                            {% for modality in imaging_modalities.keys() %}
+                                            <option value="{{ modality }}">{{ modality }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-8">
+                                        <label class="form-label" for="examSelect">Exam</label>
+                                        <select name="exam_name" id="examSelect" class="form-select" required>
+                                            <option value="">Select exam…</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label" for="clinicalIndication">Clinical indication (optional)</label>
+                                        <input type="text" name="clinical_indication" id="clinicalIndication" class="form-control" placeholder="e.g. Suspected pneumonia, rule out DVT…">
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-info mt-3">Send to Radiology</button>
                             </form>
                         </div>
                     </div>
@@ -411,18 +444,107 @@
                 <p class="text-muted">No service requests yet.</p>
                 {% endif %}
             </div>
+
+            {% if user_role in ['doctor', 'nurse', 'records', 'admin', 'receptionist', 'radiographer'] %}
+            <div class="imaging-history mt-4 pt-3 border-top">
+                <h5>Imaging Studies</h5>
+                {% if imaging_studies %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Exam</th>
+                            <th>Status</th>
+                            <th>Report</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                        {% for study in imaging_studies %}
+                        <tr>
+                            <td>{{ study.requested_at.strftime('%d %b %Y %H:%M') }}</td>
+                            <td>
+                              <strong>{{ study.modality }}</strong><br>
+                              <span class="small">{{ study.exam_name }}</span>
+                            </td>
+                            <td>
+                              <span class="badge bg-{% if study.status == 'completed' %}success{% elif study.status == 'in_progress' %}primary{% else %}secondary{% endif %}">
+                                {{ study.status|replace('_', ' ')|title }}
+                              </span>
+                            </td>
+                            <td class="small">
+                              {% if study.status == 'completed' %}
+                                {% if study.impression %}{{ study.impression[:80] }}{% if study.impression|length > 80 %}…{% endif %}{% else %}Report available{% endif %}
+                              {% else %}
+                                —
+                              {% endif %}
+                            </td>
+                            <td class="text-nowrap">
+                              {% if study.status == 'completed' %}
+                              <a href="{{ url_for('imaging_report_print', study_id=study.id) }}" class="btn btn-outline-primary btn-sm" target="_blank">Print</a>
+                              {% endif %}
+                              {% if study.images %}
+                              <span class="badge bg-light text-dark border">{{ study.images|length }} img</span>
+                              {% endif %}
+                            </td>
+                        </tr>
+                        {% if study.status == 'completed' and (study.findings or study.images) %}
+                        <tr>
+                          <td colspan="5" class="bg-light">
+                            {% if study.findings %}
+                            <div class="small mb-1"><strong>Findings:</strong> {{ study.findings }}</div>
+                            {% endif %}
+                            {% if study.impression %}
+                            <div class="small mb-2"><strong>Impression:</strong> {{ study.impression }}</div>
+                            {% endif %}
+                            {% if study.images %}
+                            <div class="d-flex flex-wrap gap-2">
+                              {% for img in study.images %}
+                                {% if not img.filename.lower().endswith('.pdf') %}
+                                <a href="{{ url_for('imaging_file', filename=img.filename) }}" target="_blank">
+                                  <img src="{{ url_for('imaging_file', filename=img.filename) }}" alt="" style="max-height: 70px; border: 1px solid #ddd; border-radius: 4px;">
+                                </a>
+                                {% else %}
+                                <a href="{{ url_for('imaging_file', filename=img.filename) }}" target="_blank" class="btn btn-sm btn-outline-secondary">PDF</a>
+                                {% endif %}
+                              {% endfor %}
+                            </div>
+                            {% endif %}
+                          </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No imaging studies yet.</p>
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
 
         {% if user_role in ['doctor', 'admin'] %}
         <script>
+            const imagingModalities = {{ imaging_modalities|tojson }};
+
             document.getElementById('showPrescriptionForm')?.addEventListener('click', () => {
                 const form = document.getElementById('prescriptionForm');
                 form.hidden = false;
                 form.querySelector('input[name="medication"]').focus();
             });
 
+            document.getElementById('showRadiologyForm')?.addEventListener('click', () => {
+                document.getElementById('serviceRequestForm').hidden = true;
+                const form = document.getElementById('radiologyRequestForm');
+                form.hidden = false;
+                form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            });
+
             document.querySelectorAll('.service-request-button').forEach((button) => {
                 button.addEventListener('click', () => {
+                    document.getElementById('radiologyRequestForm').hidden = true;
                     document.getElementById('selectedService').value = button.dataset.service;
                     document.getElementById('serviceRequestTitle').textContent = `New ${button.dataset.service.toLowerCase()} request`;
                     const form = document.getElementById('serviceRequestForm');
@@ -430,6 +552,23 @@
                     form.querySelector('input[name="service_description"]').focus();
                 });
             });
+
+            const modalitySelect = document.getElementById('modalitySelect');
+            const examSelect = document.getElementById('examSelect');
+            if (modalitySelect && examSelect) {
+                modalitySelect.addEventListener('change', () => {
+                    const modality = modalitySelect.value;
+                    examSelect.innerHTML = '<option value="">Select exam…</option>';
+                    if (modality && imagingModalities[modality]) {
+                        imagingModalities[modality].forEach((exam) => {
+                            const opt = document.createElement('option');
+                            opt.value = exam;
+                            opt.textContent = exam;
+                            examSelect.appendChild(opt);
+                        });
+                    }
+                });
+            }
         </script>
         {% endif %}
     </div>

@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="page-hero page-hero-teal mb-4">
+  <div class="page-hero-content">
+    <div>
+      <div class="eyebrow">Imaging workflow</div>
+      <h3 class="mb-1 dashboard-title">Radiology Queue</h3>
+      <p class="mb-0 hero-text">Pending and in-progress imaging studies.</p>
+    </div>
+  </div>
+</div>
+
+<div class="card queue-panel mb-4">
+  <div class="card-body">
+    <h5 class="mb-3">Pending / In Progress</h5>
+    {% if pending %}
+    <div class="queue-list">
+      {% for study in pending %}
+      <div class="queue-item">
+        <div class="queue-main">
+          <div class="queue-patient-name">{{ study.patient.full_name }}</div>
+          <div class="queue-stage queue-stage-{{ study.status }}"><span class="stage-dot"></span>{{ study.status|replace('_', ' ')|title }}</div>
+          <div class="queue-meta">Patient ID: {{ study.patient.national_id }}</div>
+          <div class="queue-meta">{{ study.modality }} · {{ study.exam_name }}</div>
+          <div class="queue-meta">Requested by {{ study.requested_by }} on {{ study.requested_at.strftime('%d %b %Y at %H:%M') }}</div>
+          {% if study.clinical_indication %}
+          <div class="queue-meta text-muted">Indication: {{ study.clinical_indication }}</div>
+          {% endif %}
+        </div>
+        <div class="queue-side">
+          <a href="{{ url_for('radiology_study', study_id=study.id) }}" class="btn btn-primary btn-sm">Open study</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state text-center py-4">
+      <h6>No pending imaging studies</h6>
+      <p class="text-muted mb-0">New requests from doctors will appear here.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if completed_today %}
+<div class="card queue-panel">
+  <div class="card-body">
+    <h5 class="mb-3">Completed today</h5>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead>
+          <tr>
+            <th>Patient</th>
+            <th>Exam</th>
+            <th>Performed by</th>
+            <th>Time</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for study in completed_today %}
+          <tr>
+            <td>{{ study.patient.full_name }}</td>
+            <td>{{ study.modality }} · {{ study.exam_name }}</td>
+            <td>{{ study.performed_by or '—' }}</td>
+            <td>{{ study.performed_at.strftime('%H:%M') if study.performed_at else '—' }}</td>
+            <td>
+              <a href="{{ url_for('radiology_study', study_id=study.id) }}" class="btn btn-outline-secondary btn-sm">View</a>
+              <a href="{{ url_for('imaging_report_print', study_id=study.id) }}" class="btn btn-outline-primary btn-sm" target="_blank">Print</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

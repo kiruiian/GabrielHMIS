@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Imaging Report — {{ study.exam_name }} — {{ patient.full_name }}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 12pt;
+      color: #222;
+      margin: 0;
+      padding: 16px 24px 32px;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .letterhead { text-align: center; margin-bottom: 12px; }
+    .letterhead img { max-width: 100%; height: auto; max-height: 90px; }
+    .report-title {
+      text-align: center;
+      font-size: 14pt;
+      font-weight: bold;
+      margin: 16px 0 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #3b2d7a;
+    }
+    .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11pt; }
+    .meta-table th, .meta-table td {
+      border: 1px solid #ccc;
+      padding: 6px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .meta-table th { background: #f5f5f8; width: 28%; font-weight: 600; }
+    .section { margin-bottom: 14px; }
+    .section-title {
+      font-weight: bold;
+      font-size: 11pt;
+      color: #3b2d7a;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 3px;
+      margin-bottom: 6px;
+    }
+    .section-body { white-space: pre-wrap; line-height: 1.45; }
+    .images { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+    .images img { max-width: 220px; max-height: 180px; border: 1px solid #ddd; }
+    .signature { margin-top: 28px; display: flex; justify-content: space-between; }
+    .signature-block { width: 45%; }
+    .signature-line { border-top: 1px solid #333; margin-top: 40px; padding-top: 4px; font-size: 10pt; }
+    .footer-note {
+      margin-top: 24px;
+      font-size: 9pt;
+      color: #666;
+      text-align: center;
+      border-top: 1px solid #ddd;
+      padding-top: 8px;
+    }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="margin-bottom: 12px;">
+    <button onclick="window.print()" style="padding: 6px 14px; cursor: pointer;">Print</button>
+    <button onclick="window.close()" style="padding: 6px 14px; cursor: pointer; margin-left: 6px;">Close</button>
+  </div>
+
+  <div class="letterhead">
+    <img src="{{ url_for('static', filename='images/letterhead.png') }}" alt="St. Gabriel Hospital">
+  </div>
+
+  <div class="report-title">Radiology / Imaging Report</div>
+
+  <table class="meta-table">
+    <tr>
+      <th>Patient Name</th>
+      <td>{{ patient.full_name }}</td>
+      <th>National ID</th>
+      <td>{{ patient.national_id }}</td>
+    </tr>
+    <tr>
+      <th>Age / Gender</th>
+      <td>{{ patient.age or '—' }} / {{ patient.gender or '—' }}</td>
+      <th>Exam</th>
+      <td>{{ study.modality }} — {{ study.exam_name }}</td>
+    </tr>
+    <tr>
+      <th>Requested by</th>
+      <td>{{ study.requested_by or '—' }}</td>
+      <th>Requested on</th>
+      <td>{{ study.requested_at.strftime('%d %b %Y at %H:%M') if study.requested_at else '—' }}</td>
+    </tr>
+    <tr>
+      <th>Performed by</th>
+      <td>{{ study.performed_by or '—' }}</td>
+      <th>Performed on</th>
+      <td>{{ study.performed_at.strftime('%d %b %Y at %H:%M') if study.performed_at else '—' }}</td>
+    </tr>
+    {% if study.clinical_indication %}
+    <tr>
+      <th>Clinical indication</th>
+      <td colspan="3">{{ study.clinical_indication }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  <div class="section">
+    <div class="section-title">Findings</div>
+    <div class="section-body">{{ study.findings or '—' }}</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Impression</div>
+    <div class="section-body">{{ study.impression or '—' }}</div>
+  </div>
+
+  {% if study.images %}
+  <div class="section">
+    <div class="section-title">Attached images</div>
+    <div class="images">
+      {% for img in study.images %}
+        {% if not img.filename.lower().endswith('.pdf') %}
+        <img src="{{ url_for('imaging_file', filename=img.filename) }}" alt="{{ img.original_name }}">
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="signature">
+    <div class="signature-block">
+      <div class="signature-line">Radiographer / Reporting officer</div>
+    </div>
+    <div class="signature-block">
+      <div class="signature-line">Date / Stamp</div>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    St. Gabriel Hospital Ltd · P.O Box 1517, 20200 Kericho-Kenya · Tel: 0770902900 / 0722902786<br>
+    This report is confidential and intended for clinical use only.
+  </div>
+</body>
+</html>

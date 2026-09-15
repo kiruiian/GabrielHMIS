@@ -2,16 +2,18 @@ import os
 import dotenv
 import secrets
 import math
+import uuid
 from datetime import datetime, timedelta
 from functools import wraps
 
 import click
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
 load_dotenv()
 
@@ -45,7 +47,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
 
 db = SQLAlchemy(app)
 
-VALID_ROLES = {'receptionist', 'doctor', 'nurse', 'triage', 'pharmacist', 'admin', 'records', 'accounts', 'hr'}
+VALID_ROLES = {'receptionist', 'doctor', 'nurse', 'triage', 'pharmacist', 'radiographer', 'admin', 'records', 'accounts', 'hr'}
 PATIENT_ACCESS_ROLES = {'receptionist', 'doctor', 'nurse', 'triage', 'records'}
 REGISTRATION_ROLES = {'receptionist', 'records'}
 VISIT_MANAGEMENT_ROLES = {'receptionist', 'records'}
@@ -56,9 +58,54 @@ VITALS_ENTRY_ROLES = {'nurse', 'triage'}
 NOTE_ENTRY_ROLES = {'doctor', 'nurse'}
 SERVICE_REQUEST_ROLES = {'doctor'}
 PHARMACY_ROLES = {'pharmacist'}
+RADIOLOGY_ROLES = {'radiographer'}
+IMAGING_VIEW_ROLES = {'doctor', 'nurse', 'records', 'admin', 'receptionist', 'radiographer'}
 PAYMENT_METHODS = {'SHA', 'SHA FFS', 'CASH PAYER', 'BROWNS PLANTATIONS', 'BRITAM', 'JUBILEE'}
 CONSULTATION_FEES = {'New Visit': 1000, 'Revisit': 500}
 ACTIVE_QUEUE_STATUSES = {'queued', 'in_progress'}
+
+IMAGING_MODALITIES = {
+    'X-Ray': [
+        'Chest X-Ray (PA)',
+        'Chest X-Ray (Lateral)',
+        'Abdominal X-Ray',
+        'Skull X-Ray',
+        'Cervical Spine',
+        'Lumbar Spine',
+        'Pelvis',
+        'KUB',
+        'Extremity X-Ray',
+    ],
+    'Ultrasound': [
+        'Abdominal Ultrasound',
+        'Pelvic / Gynaecological Ultrasound',
+        'Obstetric Ultrasound',
+        'Thyroid Ultrasound',
+        'Breast Ultrasound',
+        'Scrotal Ultrasound',
+        'Soft Tissue Ultrasound',
+        'Doppler Studies',
+    ],
+    'CT': [
+        'CT Head',
+        'CT Chest',
+        'CT Abdomen / Pelvis',
+        'CT Spine',
+        'CT Angiogram',
+    ],
+    'MRI': [
+        'MRI Brain',
+        'MRI Cervical Spine',
+        'MRI Lumbar Spine',
+        'MRI Knee',
+        'MRI Shoulder',
+        'MRI Abdomen',
+    ],
+}
+
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'pdf'}
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'uploads', 'imaging')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def get_queue_identifier(patient_id):
     latest_request = ServiceRequest.query.filter_by(patient_id=patient_id).order_by(ServiceRequest.requested_at.desc()).first()
@@ -283,6 +330,43 @@ class AuditLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     actor = db.relationship('User')
+
+
+class ImagingStudy(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('patient.id'), nullable=False)
+    visit_id = db.Column(db.Integer, db.ForeignKey('visit.id'))
+    service_request_id = db.Column(db.Integer, db.ForeignKey('service_request.id'))
+
+    modality = db.Column(db.String(30), nullable=False)  # X-Ray, Ultrasound, CT, MRI
+    exam_name = db.Column(db.String(120), nullable=False)
+    clinical_indication = db.Column(db.Text)
+
+    status = db.Column(db.String(20), default='pending')  # pending, in_progress, completed, cancelled
+
+    requested_by = db.Column(db.String(100))
+    requested_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    performed_by = db.Column(db.String(100))
+    performed_at = db.Column(db.DateTime)
+
+    findings = db.Column(db.Text)
+    impression = db.Column(db.Text)
+
+    patient = db.relationship('Patient', backref=db.backref('imaging_studies', lazy=True))
+    visit = db.relationship('Visit', backref=db.backref('imaging_studies', lazy=True))
+    service_request = db.relationship('ServiceRequest', backref=db.backref('imaging_study', uselist=False))
+    images = db.relationship('ImagingImage', backref='study', lazy=True, cascade='all, delete-orphan')
+
+
+class ImagingImage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    study_id = db.Column(db.Integer, db.ForeignKey('imaging_study.id'), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    original_name = db.Column(db.String(255))
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    uploaded_by = db.Column(db.String(100))
+
 
 # ====================== AUTH ======================
 def login_required(roles=None):
@@ -621,17 +705,55 @@ def patient_card(national_id):
             if service_type not in {'Lab', 'Pharmacy', 'Radiology', 'Referral'}:
                 flash('Please choose a valid service.', 'danger')
                 return redirect(url_for('patient_card', national_id=national_id))
-            description = request.form.get('service_description', '').strip()
-            if not description:
-                flash('Please describe the requested service.', 'danger')
-                return redirect(url_for('patient_card', national_id=national_id))
-            db.session.add(ServiceRequest(
-                patient_id=patient.id,
-                service_type=service_type,
-                description=description,
-                requested_by=session.get('full_name', 'Doctor')
-            ))
-            flash(f'{service_type} request sent successfully.', 'success')
+
+            if service_type == 'Radiology':
+                modality = request.form.get('modality', '').strip()
+                exam_name = request.form.get('exam_name', '').strip()
+                clinical_indication = request.form.get('clinical_indication', '').strip()
+                if modality not in IMAGING_MODALITIES or exam_name not in IMAGING_MODALITIES.get(modality, []):
+                    flash('Please select a valid imaging modality and exam.', 'danger')
+                    return redirect(url_for('patient_card', national_id=national_id))
+                description = f'{modality}: {exam_name}'
+                if clinical_indication:
+                    description += f' — {clinical_indication}'
+                svc = ServiceRequest(
+                    patient_id=patient.id,
+                    service_type='Radiology',
+                    description=description,
+                    requested_by=session.get('full_name', 'Doctor')
+                )
+                db.session.add(svc)
+                db.session.flush()
+                active_visit = Visit.query.filter(
+                    Visit.patient_id == patient.id,
+                    db.or_(Visit.status != 'completed', Visit.status.is_(None))
+                ).order_by(Visit.started_at.desc()).first()
+                study = ImagingStudy(
+                    patient_id=patient.id,
+                    visit_id=active_visit.id if active_visit else None,
+                    service_request_id=svc.id,
+                    modality=modality,
+                    exam_name=exam_name,
+                    clinical_indication=clinical_indication or None,
+                    requested_by=session.get('full_name', 'Doctor'),
+                    status='pending'
+                )
+                db.session.add(study)
+                db.session.flush()
+                audit('imaging_requested', 'imaging_study', study.id, f'patient_id={patient.id}; {modality}/{exam_name}')
+                flash(f'{exam_name} request sent to Radiology.', 'success')
+            else:
+                description = request.form.get('service_description', '').strip()
+                if not description:
+                    flash('Please describe the requested service.', 'danger')
+                    return redirect(url_for('patient_card', national_id=national_id))
+                db.session.add(ServiceRequest(
+                    patient_id=patient.id,
+                    service_type=service_type,
+                    description=description,
+                    requested_by=session.get('full_name', 'Doctor')
+                ))
+                flash(f'{service_type} request sent successfully.', 'success')
         elif action == 'prescription':
             if user_role not in SERVICE_REQUEST_ROLES and user_role != 'admin':
                 flash('Only doctors can prescribe medication.', 'danger')
@@ -709,6 +831,7 @@ def patient_card(national_id):
     vitals = vitals_query.order_by(VitalSigns.timestamp.desc()).limit(10).all()
     notes = ClinicalNote.query.filter_by(patient_id=patient.id).order_by(ClinicalNote.timestamp.desc()).limit(50).all()
     requests = ServiceRequest.query.filter_by(patient_id=patient.id).order_by(ServiceRequest.requested_at.desc()).limit(20).all()
+    imaging_studies = ImagingStudy.query.filter_by(patient_id=patient.id).order_by(ImagingStudy.requested_at.desc()).limit(30).all()
     active_visit = Visit.query.filter(
         Visit.patient_id == patient.id,
         db.or_(Visit.status != 'completed', Visit.status.is_(None))
@@ -727,11 +850,13 @@ def patient_card(national_id):
         db.session.commit()
         flash('Consultation billing has been updated on the invoice.', 'success')
 
-    return render_template('patient_card.html', 
-                         patient=patient, 
-                         vitals=vitals, 
-                         notes=notes, 
+    return render_template('patient_card.html',
+                         patient=patient,
+                         vitals=vitals,
+                         notes=notes,
                          requests=requests,
+                         imaging_studies=imaging_studies,
+                         imaging_modalities=IMAGING_MODALITIES,
                          active_visit=active_visit,
                          user_role=user_role,
                          queue_identifier=get_queue_identifier(patient.id))
@@ -1329,6 +1454,116 @@ def edit_patient(national_id):
         return redirect(url_for('patient_details', national_id=patient.national_id))
 
     return render_template('patient_edit.html', patient=patient)
+
+
+# ====================== RADIOLOGY ======================
+def allowed_image_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
+
+@app.route('/radiology')
+@login_required(roles=RADIOLOGY_ROLES | {'admin'})
+def radiology_queue():
+    pending = ImagingStudy.query.filter(
+        ImagingStudy.status.in_({'pending', 'in_progress'})
+    ).order_by(ImagingStudy.requested_at.asc()).all()
+    completed_today = ImagingStudy.query.filter(
+        ImagingStudy.status == 'completed',
+        ImagingStudy.performed_at >= datetime.combine(datetime.utcnow().date(), datetime.min.time())
+    ).order_by(ImagingStudy.performed_at.desc()).limit(20).all()
+    response = app.make_response(render_template(
+        'radiology.html',
+        pending=pending,
+        completed_today=completed_today,
+    ))
+    response.headers['Cache-Control'] = 'no-store, max-age=0'
+    return response
+
+
+@app.route('/radiology/<int:study_id>', methods=['GET', 'POST'])
+@login_required(roles=RADIOLOGY_ROLES | {'admin'})
+def radiology_study(study_id):
+    study = ImagingStudy.query.get_or_404(study_id)
+    patient = study.patient
+
+    if request.method == 'POST':
+        action = request.form.get('action', '').strip()
+        if action == 'start':
+            if study.status == 'pending':
+                study.status = 'in_progress'
+                study.performed_by = session.get('full_name', session.get('username', 'Radiographer'))
+                audit('imaging_started', 'imaging_study', study.id, f'by={study.performed_by}')
+                db.session.commit()
+                flash('Study marked as in progress.', 'success')
+            return redirect(url_for('radiology_study', study_id=study.id))
+
+        if action == 'save_report':
+            findings = request.form.get('findings', '').strip()
+            impression = request.form.get('impression', '').strip()
+            if not findings and not impression:
+                flash('Please enter findings or impression before saving.', 'danger')
+                return redirect(url_for('radiology_study', study_id=study.id))
+            study.findings = findings or None
+            study.impression = impression or None
+            study.performed_by = session.get('full_name', session.get('username', 'Radiographer'))
+            study.performed_at = datetime.utcnow()
+            study.status = 'completed'
+            if study.service_request:
+                study.service_request.status = 'Completed'
+            audit('imaging_completed', 'imaging_study', study.id, f'exam={study.exam_name}')
+            db.session.commit()
+            flash('Report saved and study completed.', 'success')
+            return redirect(url_for('radiology_queue'))
+
+        if action == 'upload_images':
+            files = request.files.getlist('images')
+            saved = 0
+            for f in files:
+                if not f or not f.filename:
+                    continue
+                if not allowed_image_file(f.filename):
+                    flash(f'Skipped unsupported file: {f.filename}', 'warning')
+                    continue
+                original = secure_filename(f.filename)
+                ext = original.rsplit('.', 1)[1].lower()
+                stored_name = f'{uuid.uuid4().hex}.{ext}'
+                f.save(os.path.join(UPLOAD_FOLDER, stored_name))
+                img = ImagingImage(
+                    study_id=study.id,
+                    filename=stored_name,
+                    original_name=original,
+                    uploaded_by=session.get('full_name', session.get('username', 'Radiographer'))
+                )
+                db.session.add(img)
+                saved += 1
+            if saved:
+                if study.status == 'pending':
+                    study.status = 'in_progress'
+                    study.performed_by = session.get('full_name', session.get('username', 'Radiographer'))
+                audit('imaging_images_uploaded', 'imaging_study', study.id, f'count={saved}')
+                db.session.commit()
+                flash(f'{saved} image(s) uploaded.', 'success')
+            else:
+                flash('No valid images were uploaded.', 'danger')
+            return redirect(url_for('radiology_study', study_id=study.id))
+
+    return render_template('radiology_study.html', study=study, patient=patient)
+
+
+@app.route('/imaging/file/<path:filename>')
+@login_required(roles=IMAGING_VIEW_ROLES)
+def imaging_file(filename):
+    # Prevent path traversal
+    safe = os.path.basename(filename)
+    return send_from_directory(UPLOAD_FOLDER, safe)
+
+
+@app.route('/imaging/<int:study_id>/print')
+@login_required(roles=IMAGING_VIEW_ROLES)
+def imaging_report_print(study_id):
+    study = ImagingStudy.query.get_or_404(study_id)
+    return render_template('imaging_report_print.html', study=study, patient=study.patient)
+
 
 if __name__ == '__main__':
     app.run(
