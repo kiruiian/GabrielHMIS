@@ -1,0 +1,127 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h3 class="mb-1">Laboratory Order #{{ order.id }}</h3>
+            <div class="text-muted">{{ order.patient.full_name }} · {{ order.patient.national_id }}</div>
+        </div>
+        <a href="{{ url_for('lab_queue') }}" class="btn btn-outline-secondary">← Laboratory Queue</a>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header"><strong>Investigation</strong></div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-5">Patient</dt><dd class="col-sm-7">{{ order.patient.full_name }}</dd>
+                        <dt class="col-sm-5">National ID</dt><dd class="col-sm-7">{{ order.patient.national_id }}</dd>
+                        <dt class="col-sm-5">Test</dt><dd class="col-sm-7">{{ order.test_name }}</dd>
+                        <dt class="col-sm-5">Specimen</dt><dd class="col-sm-7">{{ order.specimen_type or 'Not collected' }}</dd>
+                        <dt class="col-sm-5">Priority</dt><dd class="col-sm-7">{{ order.priority }}</dd>
+                        <dt class="col-sm-5">Status</dt><dd class="col-sm-7"><span class="badge bg-primary">{{ order.status }}</span></dd>
+                        <dt class="col-sm-5">Requested by</dt><dd class="col-sm-7">{{ order.requested_by or '—' }}</dd>
+                        <dt class="col-sm-5">Requested</dt><dd class="col-sm-7">{{ order.requested_at.strftime('%d %b %Y %H:%M') }}</dd>
+                    </dl>
+                </div>
+            </div>
+
+            {% if order.status in ['Requested', 'Rejected'] %}
+            <div class="card shadow-sm">
+                <div class="card-header">Collect specimen</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="collect">
+                        <label class="form-label">Specimen type</label>
+                        <input name="specimen_type" class="form-control mb-3" value="{{ order.specimen_type or '' }}" placeholder="e.g. EDTA blood">
+                        <label class="form-label">Priority</label>
+                        <select name="priority" class="form-select mb-3">
+                            <option {% if order.priority == 'Routine' %}selected{% endif %}>Routine</option>
+                            <option {% if order.priority == 'Urgent' %}selected{% endif %}>Urgent</option>
+                        </select>
+                        <button class="btn btn-primary w-100">Record Collection</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-lg-7">
+            {% if order.status == 'Collected' %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">Specimen reception</div>
+                <div class="card-body d-flex gap-2">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="receive">
+                        <button class="btn btn-success">Receive Specimen</button>
+                    </form>
+                    <button class="btn btn-outline-danger" data-bs-toggle="collapse" data-bs-target="#rejectBox">Reject</button>
+                </div>
+                <div class="collapse" id="rejectBox">
+                    <div class="card-body border-top">
+                        <form method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="reject">
+                            <textarea name="rejection_reason" class="form-control mb-2" rows="2" placeholder="Reason for rejection" required></textarea>
+                            <button class="btn btn-danger">Reject Specimen</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if order.status == 'Received' %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="start">
+                        <button class="btn btn-primary">Start Processing</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if order.status in ['Processing', 'Result Entered', 'Verified', 'Completed'] %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">Laboratory result</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="save_result">
+                        <label class="form-label">Result</label>
+                        <textarea name="result" class="form-control mb-3" rows="5" required>{{ order.result or '' }}</textarea>
+                        <div class="row g-3">
+                            <div class="col-md-4"><label class="form-label">Units</label><input name="units" class="form-control" value="{{ order.units or '' }}"></div>
+                            <div class="col-md-8"><label class="form-label">Reference range</label><input name="reference_range" class="form-control" value="{{ order.reference_range or '' }}"></div>
+                            <div class="col-12"><label class="form-label">Interpretation / comments</label><textarea name="interpretation" class="form-control" rows="3">{{ order.interpretation or '' }}</textarea></div>
+                        </div>
+                        {% if order.status != 'Verified' %}<button class="btn btn-primary mt-3">Save Result</button>{% endif %}
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if order.status == 'Result Entered' and order.result %}
+            <div class="card border-success shadow-sm mb-4">
+                <div class="card-header">Verification</div>
+                <div class="card-body">
+                    <p class="mb-3">The result is ready for laboratory verification and release.</p>
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="verify">
+                        <button class="btn btn-success">Verify & Release Result</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if order.status == 'Verified' %}
+            <div class="alert alert-success d-flex justify-content-between align-items-center">
+                <span>Verified by <strong>{{ order.verified_by }}</strong>{% if order.verified_at %} on {{ order.verified_at.strftime('%d %b %Y %H:%M') }}{% endif %}.</span>
+                <a class="btn btn-sm btn-success" target="_blank" href="{{ url_for('lab_result_print', order_id=order.id) }}">Print Result</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
