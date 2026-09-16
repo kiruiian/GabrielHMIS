@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="card shadow-sm">
+        <div class="card-body p-5">
+            <div class="text-center mb-4">
+                <h2 class="mb-1">LABORATORY REPORT</h2>
+                <div class="text-muted">Gabriel Hospital HMIS</div>
+            </div>
+            <div class="row mb-4">
+                <div class="col-md-6"><strong>Patient:</strong> {{ order.patient.full_name }}<br><strong>National ID:</strong> {{ order.patient.national_id }}</div>
+                <div class="col-md-6"><strong>Age:</strong> {{ order.patient.age }}<br><strong>Gender:</strong> {{ order.patient.gender }}</div>
+            </div>
+            <table class="table table-bordered">
+                <tr><th width="30%">Investigation</th><td>{{ order.test_name }}</td></tr>
+                <tr><th>Specimen</th><td>{{ order.specimen_type or '—' }}</td></tr>
+                <tr><th>Result</th><td>{{ order.result }}</td></tr>
+                <tr><th>Units</th><td>{{ order.units or '—' }}</td></tr>
+                <tr><th>Reference range</th><td>{{ order.reference_range or '—' }}</td></tr>
+                <tr><th>Interpretation / comments</th><td>{{ order.interpretation or '—' }}</td></tr>
+            </table>
+            <div class="mt-4"><strong>Verified by:</strong> {{ order.verified_by or '—' }}<br><strong>Date:</strong> {{ order.verified_at.strftime('%d %b %Y %H:%M') if order.verified_at else '—' }}</div>
+            <div class="text-center mt-5 d-print-none"><button class="btn btn-primary" onclick="window.print()">Print</button></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
