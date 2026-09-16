@@ -43,6 +43,11 @@
         {% if session.get('role') in ['radiographer', 'admin'] %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('radiology_queue') }}">Radiology</a></li>
         {% endif %}
+        {% if session.get('role') in ['lab', 'admin'] %}
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('lab_queue') }}">Laboratory</a></li>
+        {% endif %}
+        {% if session.get('role') in ['admin', 'records'] %}
+        {% endif %}
         <li class="nav-item d-flex align-items-center text-white-50 small px-2">{{ session.get('full_name') }}</li>
         <li class="nav-item d-flex align-items-center">
           <form method="post" action="{{ url_for('logout') }}">
@@ -71,3 +76,4 @@
     <script>window.HMIS = { csrfToken: {{ csrf_token()|tojson }} };</script>
   </body>
 </html>
+
