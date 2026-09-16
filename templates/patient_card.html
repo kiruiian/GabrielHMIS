@@ -341,16 +341,154 @@
                     </div>
                     {% endif %}
                     {% if user_role in ['doctor', 'admin'] %}
-                    <div id="serviceRequestForm" class="service-inline-form mt-3" hidden>
+                                        <div id="labRequestForm" class="service-inline-form mt-3" hidden>
                         <div class="border-top pt-3">
-                            <h6 id="serviceRequestTitle">New service request</h6>
+                            <h6>New Laboratory Request</h6>
+
+                            <form method="POST" id="labOrderForm">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="action" value="service_request">
+                                <input type="hidden" name="service_type" value="Lab">
+
+                                <div class="mb-3">
+                                    <label for="labTestSearch" class="form-label">
+                                        Search laboratory tests
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="labTestSearch"
+                                        class="form-control"
+                                        placeholder="Type test name to search..."
+                                        autocomplete="off"
+                                    >
+                                </div>
+
+                                <div
+                                    id="labTestList"
+                                    class="border rounded p-2"
+                                    style="max-height: 300px; overflow-y: auto;"
+                                >
+                                    {% for test in lab_tests %}
+                                    <div
+                                        class="lab-test-row border-bottom py-2"
+                                        data-test-name="{{ test.test_name|lower }}"
+                                    >
+                                        <div class="form-check d-flex align-items-center">
+                                            <input
+                                                class="form-check-input lab-test-checkbox me-2"
+                                                type="checkbox"
+                                                name="lab_test_ids"
+                                                value="{{ test.id }}"
+                                                id="lab_test_{{ test.id }}"
+                                                data-price="{{ test.price }}"
+                                                data-test-name="{{ test.test_name }}"
+                                            >
+
+                                            <label
+                                                class="form-check-label flex-grow-1"
+                                                for="lab_test_{{ test.id }}"
+                                            >
+                                                <strong>{{ test.test_name }}</strong>
+                                                <span class="text-muted small">
+                                                    — {{ test.specimen_type }}
+                                                </span>
+                                            </label>
+
+                                            <span class="fw-semibold">
+                                                KES {{ "%.2f"|format(test.price|float) }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    {% else %}
+                                    <div class="text-muted text-center py-3">
+                                        No laboratory tests available.
+                                    </div>
+                                    {% endfor %}
+                                </div>
+
+                                <div class="mt-3">
+                                    <label for="labPriority" class="form-label">
+                                        Priority
+                                    </label>
+
+                                    <select
+                                        name="lab_priority"
+                                        id="labPriority"
+                                        class="form-select"
+                                    >
+                                        <option value="Routine">Routine</option>
+                                        <option value="Urgent">Urgent</option>
+                                    </select>
+                                </div>
+
+                                <div class="mt-3 p-3 border rounded bg-light">
+                                    <div class="d-flex justify-content-between">
+                                        <span>Selected tests</span>
+                                        <strong id="selectedLabCount">0</strong>
+                                    </div>
+
+                                    <div class="d-flex justify-content-between mt-2">
+                                        <span>Laboratory subtotal</span>
+                                        <strong id="labSubtotal">KES 0.00</strong>
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    class="btn btn-primary mt-3"
+                                    id="sendLabButton"
+                                    disabled
+                                >
+                                    Send to Laboratory
+                                </button>
+
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-secondary mt-3"
+                                    id="cancelLabButton"
+                                >
+                                    Cancel
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div id="referralRequestForm" class="service-inline-form mt-3" hidden>
+                        <div class="border-top pt-3">
+                            <h6>New Referral Request</h6>
+
                             <form method="POST">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="action" value="service_request">
-                                <input type="hidden" name="service_type" id="selectedService" value="Lab">
-                                <label class="form-label" for="serviceDescription">Details</label>
-                                <input type="text" name="service_description" id="serviceDescription" class="form-control" placeholder="Tests or referral details" required>
-                                <button type="submit" class="btn btn-primary mt-3">Send request</button>
+                                <input type="hidden" name="service_type" value="Referral">
+
+                                <label class="form-label" for="referralDescription">
+                                    Referral details
+                                </label>
+
+                                <input
+                                    type="text"
+                                    name="service_description"
+                                    id="referralDescription"
+                                    class="form-control"
+                                    placeholder="Enter referral details"
+                                    required
+                                >
+
+                                <button
+                                    type="submit"
+                                    class="btn btn-warning mt-3"
+                                >
+                                    Send Referral
+                                </button>
+
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-secondary mt-3"
+                                    id="cancelReferralButton"
+                                >
+                                    Cancel
+                                </button>
                             </form>
                         </div>
                     </div>
@@ -536,22 +674,44 @@
             });
 
             document.getElementById('showRadiologyForm')?.addEventListener('click', () => {
-                document.getElementById('serviceRequestForm').hidden = true;
+                document.getElementById('labRequestForm').hidden = true;
+                document.getElementById('referralRequestForm').hidden = true;
                 const form = document.getElementById('radiologyRequestForm');
                 form.hidden = false;
                 form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             });
 
-            document.querySelectorAll('.service-request-button').forEach((button) => {
-                button.addEventListener('click', () => {
-                    document.getElementById('radiologyRequestForm').hidden = true;
-                    document.getElementById('selectedService').value = button.dataset.service;
-                    document.getElementById('serviceRequestTitle').textContent = `New ${button.dataset.service.toLowerCase()} request`;
-                    const form = document.getElementById('serviceRequestForm');
-                    form.hidden = false;
-                    form.querySelector('input[name="service_description"]').focus();
-                });
+            const labRequestForm = document.getElementById('labRequestForm');
+const referralRequestForm = document.getElementById('referralRequestForm');
+const radiologyRequestForm = document.getElementById('radiologyRequestForm');
+
+document.querySelectorAll('.service-request-button').forEach((button) => {
+    button.addEventListener('click', () => {
+        const service = button.dataset.service;
+
+        if (labRequestForm) labRequestForm.hidden = true;
+        if (referralRequestForm) referralRequestForm.hidden = true;
+        if (radiologyRequestForm) radiologyRequestForm.hidden = true;
+
+        if (service === 'Lab' && labRequestForm) {
+            labRequestForm.hidden = false;
+            labRequestForm.scrollIntoView({
+                behavior: 'smooth',
+                block: 'nearest'
             });
+        }
+
+        if (service === 'Referral' && referralRequestForm) {
+            referralRequestForm.hidden = false;
+            referralRequestForm.scrollIntoView({
+                behavior: 'smooth',
+                block: 'nearest'
+            });
+
+            document.getElementById('referralDescription')?.focus();
+        }
+    });
+});
 
             const modalitySelect = document.getElementById('modalitySelect');
             const examSelect = document.getElementById('examSelect');
@@ -569,6 +729,49 @@
                     }
                 });
             }
+                        const labTestSearch = document.getElementById('labTestSearch');
+            const labTestRows = document.querySelectorAll('.lab-test-row');
+            const labTestCheckboxes = document.querySelectorAll('.lab-test-checkbox');
+            const selectedLabCount = document.getElementById('selectedLabCount');
+            const labSubtotal = document.getElementById('labSubtotal');
+            const sendLabButton = document.getElementById('sendLabButton');
+
+            function updateLabSummary() {
+                let count = 0;
+                let subtotal = 0;
+
+                labTestCheckboxes.forEach((checkbox) => {
+                    if (checkbox.checked) {
+                        count += 1;
+                        subtotal += parseFloat(checkbox.dataset.price || '0');
+                    }
+                });
+
+                selectedLabCount.textContent = count;
+                labSubtotal.textContent =
+                    `KES ${subtotal.toLocaleString('en-KE', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    })}`;
+
+                sendLabButton.disabled = count === 0;
+            }
+
+            labTestCheckboxes.forEach((checkbox) => {
+                checkbox.addEventListener('change', updateLabSummary);
+            });
+
+            labTestSearch?.addEventListener('input', () => {
+                const searchTerm = labTestSearch.value.trim().toLowerCase();
+
+                labTestRows.forEach((row) => {
+                    const testName = row.dataset.testName || '';
+
+                    row.hidden = searchTerm !== '' && !testName.includes(searchTerm);
+                });
+            });
+
+            updateLabSummary();
         </script>
         {% endif %}
     </div>

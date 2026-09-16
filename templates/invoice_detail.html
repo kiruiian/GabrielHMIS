@@ -128,7 +128,17 @@
               <td>{{ 'Pending' if has_pending_pharmacy_charge else '0.00' }}</td>
             {% endif %}
           </tr>
-          <tr class="section-row"><td colspan="4">Consultation</td></tr>
+          <tr class="section-row"><td colspan="4">Laboratory</td></tr>
+          <tr>
+            <td>Laboratory tests</td>
+            <td>1</td>
+            <td>{{ '%.2f'|format(lab_subtotal) }}</td>
+            <td>{{ '%.2f'|format(lab_subtotal) }}</td>
+          </tr>
+          <tr class="subtotal-row">
+            <td colspan="3">Laboratory subtotal</td>
+            <td>{{ '%.2f'|format(lab_subtotal) }}</td>
+          </tr>          <tr class="section-row"><td colspan="4">Consultation</td></tr>
           <tr>
             <td>Consultation fee</td>
             <td>1</td>

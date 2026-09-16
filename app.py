@@ -887,7 +887,9 @@ def patient_card(national_id):
             if user_role not in SERVICE_REQUEST_ROLES and user_role != "admin":
                 flash("Only doctors can request clinical services.", "danger")
                 return redirect(url_for("patient_card", national_id=national_id))
+
             service_type = request.form.get("service_type", "").strip()
+
             if service_type not in {"Lab", "Pharmacy", "Radiology", "Referral"}:
                 flash("Please choose a valid service.", "danger")
                 return redirect(url_for("patient_card", national_id=national_id))
@@ -898,31 +900,41 @@ def patient_card(national_id):
                 clinical_indication = request.form.get(
                     "clinical_indication", ""
                 ).strip()
+
                 if (
                     modality not in IMAGING_MODALITIES
                     or exam_name not in IMAGING_MODALITIES.get(modality, [])
                 ):
                     flash("Please select a valid imaging modality and exam.", "danger")
                     return redirect(url_for("patient_card", national_id=national_id))
+
                 description = f"{modality}: {exam_name}"
+
                 if clinical_indication:
                     description += f" — {clinical_indication}"
+
                 svc = ServiceRequest(
                     patient_id=patient.id,
                     service_type="Radiology",
                     description=description,
                     requested_by=session.get("full_name", "Doctor"),
                 )
+
                 db.session.add(svc)
                 db.session.flush()
+
                 active_visit = (
                     Visit.query.filter(
                         Visit.patient_id == patient.id,
-                        db.or_(Visit.status != "completed", Visit.status.is_(None)),
+                        db.or_(
+                            Visit.status != "completed",
+                            Visit.status.is_(None),
+                        ),
                     )
                     .order_by(Visit.started_at.desc())
                     .first()
                 )
+
                 study = ImagingStudy(
                     patient_id=patient.id,
                     visit_id=active_visit.id if active_visit else None,
@@ -933,36 +945,194 @@ def patient_card(national_id):
                     requested_by=session.get("full_name", "Doctor"),
                     status="pending",
                 )
+
                 db.session.add(study)
                 db.session.flush()
+
                 audit(
                     "imaging_requested",
                     "imaging_study",
                     study.id,
                     f"patient_id={patient.id}; {modality}/{exam_name}",
                 )
+
                 flash(f"{exam_name} request sent to Radiology.", "success")
-            else:
-                allowed_service_types = {"Lab", "Referral"}
 
-                if service_type not in allowed_service_types:
-                    flash("Invalid service request type.", "danger")
-                    return redirect(url_for("patient_card", national_id=national_id))
+            elif service_type == "Lab":
+                selected_test_ids = request.form.getlist("lab_test_ids")
 
-                description = request.form.get("service_description", "").strip()
+                if not selected_test_ids:
+                    flash("Please select at least one laboratory test.", "danger")
+                    return redirect(
+                        url_for("patient_card", national_id=national_id)
+                    )
+
+                LabTest = app.config.get("LAB_TEST_MODEL")
+                LabOrder = app.config.get("LAB_ORDER_MODEL")
+                LabOrderItem = app.config.get("LAB_ORDER_ITEM_MODEL")
+
+                if not LabTest or not LabOrder or not LabOrderItem:
+                    flash(
+                        "Laboratory catalogue is not available.",
+                        "danger",
+                    )
+                    return redirect(
+                        url_for("patient_card", national_id=national_id)
+                    )
+
+                try:
+                    test_ids = [int(test_id) for test_id in selected_test_ids]
+                except ValueError:
+                    flash("Invalid laboratory test selection.", "danger")
+                    return redirect(
+                        url_for("patient_card", national_id=national_id)
+                    )
+
+                tests = (
+                    LabTest.query
+                    .filter(
+                        LabTest.id.in_(test_ids),
+                        LabTest.active.is_(True),
+                    )
+                    .order_by(LabTest.id)
+                    .all()
+                )
+
+                if len(tests) != len(set(test_ids)):
+                    flash(
+                        "One or more selected laboratory tests are invalid or inactive.",
+                        "danger",
+                    )
+                    return redirect(
+                        url_for("patient_card", national_id=national_id)
+                    )
+
+                active_visit = (
+                    Visit.query.filter(
+                        Visit.patient_id == patient.id,
+                        db.or_(
+                            Visit.status != "completed",
+                            Visit.status.is_(None),
+                        ),
+                    )
+                    .order_by(Visit.started_at.desc())
+                    .first()
+                )
+
+                if not active_visit:
+                    flash(
+                        "The patient does not have an active visit.",
+                        "danger",
+                    )
+                    return redirect(
+                        url_for("patient_card", national_id=national_id)
+                    )
+
+                test_names = [test.test_name for test in tests]
+
+                specimen_types = list(
+                    dict.fromkeys(
+                        test.specimen_type
+                        for test in tests
+                        if test.specimen_type
+                    )
+                )
+
+                description = "Laboratory tests: " + ", ".join(test_names)
+
+                svc = ServiceRequest(
+                    patient_id=patient.id,
+                    service_type="Lab",
+                    description=description,
+                    requested_by=session.get("full_name", "Doctor"),
+                )
+
+                db.session.add(svc)
+                db.session.flush()
+
+                lab_order = LabOrder(
+                    patient_id=patient.id,
+                    visit_id=active_visit.id,
+                    service_request_id=svc.id,
+                    test_name=", ".join(test_names),
+                    specimen_type=", ".join(specimen_types)
+                    or "See test items",
+                    priority=request.form.get(
+                        "lab_priority",
+                        "Routine",
+                    ).strip()
+                    or "Routine",
+                    status="Requested",
+                    requested_by=session.get("full_name", "Doctor"),
+                )
+
+                db.session.add(lab_order)
+                db.session.flush()
+
+                lab_subtotal = 0
+
+                for test in tests:
+                    item_price = float(test.price or 0)
+
+                    item = LabOrderItem(
+                        lab_order_id=lab_order.id,
+                        lab_test_id=test.id,
+                        price=item_price,
+                        status="Requested",
+                    )
+
+                    db.session.add(item)
+                    lab_subtotal += item_price
+
+                db.session.flush()
+
+                audit(
+                    "laboratory_requested",
+                    "lab_order",
+                    lab_order.id,
+                    f"patient_id={patient.id}; "
+                    f"visit_id={active_visit.id}; "
+                    f"tests={', '.join(test_names)}; "
+                    f"subtotal={lab_subtotal:.2f}",
+                )
+
+                flash(
+                    f"{len(tests)} laboratory test(s) sent successfully. "
+                    f"Lab subtotal: KES {lab_subtotal:,.2f}",
+                    "success",
+                )
+
+            elif service_type == "Referral":
+                description = request.form.get(
+                    "service_description",
+                    "",
+                ).strip()
+
                 if not description:
-                    flash("Please describe the requested service.", "danger")
-                    return redirect(url_for("patient_card", national_id=national_id))
+                    flash(
+                        "Please describe the requested referral.",
+                        "danger",
+                    )
+                    return redirect(
+                        url_for("patient_card", national_id=national_id)
+                    )
 
                 db.session.add(
                     ServiceRequest(
                         patient_id=patient.id,
-                        service_type=service_type,
+                        service_type="Referral",
                         description=description,
-                        requested_by=session.get("full_name", "Doctor"),
+                        requested_by=session.get(
+                            "full_name",
+                            "Doctor",
+                        ),
                     )
                 )
-                flash(f"{service_type} request sent successfully.", "success")
+
+                flash(
+                    "Referral request sent successfully.",
+                    "success",
+                )
         elif action == "prescription":
             if user_role not in SERVICE_REQUEST_ROLES and user_role != "admin":
                 flash("Only doctors can prescribe medication.", "danger")
@@ -1104,7 +1274,16 @@ def patient_card(national_id):
         )
         db.session.commit()
         flash("Consultation billing has been updated on the invoice.", "success")
+    LabTest = app.config.get("LAB_TEST_MODEL")
+    lab_tests = []
 
+    if LabTest:
+        lab_tests = (
+            LabTest.query
+            .filter_by(active=True)
+            .order_by(LabTest.test_name.asc())
+            .all()
+        )
     return render_template(
         "patient_card.html",
         patient=patient,
@@ -1113,6 +1292,7 @@ def patient_card(national_id):
         requests=requests,
         imaging_studies=imaging_studies,
         imaging_modalities=IMAGING_MODALITIES,
+        lab_tests= lab_tests,
         active_visit=active_visit,
         user_role=user_role,
         queue_identifier=get_queue_identifier(patient.id),
@@ -1312,6 +1492,16 @@ def invoices():
             )
             .all()
         )
+        LabOrder = app.config.get("LAB_ORDER_MODEL")
+        lab_subtotal = 0
+
+        if LabOrder:
+            lab_orders = LabOrder.query.filter_by(visit_id=visit.id).all()
+            lab_subtotal = sum(
+                float(item.price or 0)
+                for order in lab_orders
+                for item in order.items
+            )
         has_pending_pharmacy_charge = (
             Prescription.query.filter(
                 Prescription.visit_id == visit.id,
@@ -1326,7 +1516,7 @@ def invoices():
             else None
         )
         invoice_total = (
-            consultation_total + pharmacy_total
+            consultation_total + lab_subtotal + pharmacy_total
             if consultation_total is not None and not has_pending_pharmacy_charge
             else None
         )
@@ -1385,6 +1575,16 @@ def invoice_detail(visit_id):
     pharmacy_total = sum(
         float(item.pharmacy_amount or 0) for item in pharmacy_prescriptions
     )
+    LabOrder = app.config.get("LAB_ORDER_MODEL")
+    lab_subtotal = 0
+
+    if LabOrder:
+        lab_orders = LabOrder.query.filter_by(visit_id=visit.id).all()
+        lab_subtotal = sum(
+            float(item.price or 0)
+            for order in lab_orders
+            for item in order.items
+        )
     has_pending_pharmacy_charge = (
         Prescription.query.filter(
             Prescription.visit_id == visit.id,
@@ -1399,7 +1599,7 @@ def invoice_detail(visit_id):
         else None
     )
     invoice_total = (
-        consultation_total + pharmacy_total
+        consultation_total + lab_subtotal + pharmacy_total
         if consultation_total is not None and not has_pending_pharmacy_charge
         else None
     )
@@ -1425,6 +1625,7 @@ def invoice_detail(visit_id):
         patient=visit.patient,
         pharmacy_prescriptions=pharmacy_prescriptions,
         pharmacy_total=pharmacy_total,
+        lab_subtotal=lab_subtotal,
         has_pending_pharmacy_charge=has_pending_pharmacy_charge,
         invoice_total=invoice_total,
         payments=payments,
