@@ -6,7 +6,7 @@
       <div>
         <div class="eyebrow">Clinic flow</div>
         <h3 class="mb-1 dashboard-title">Outpatient Queue</h3>
-        <p class="mb-0 hero-text">Track patients in line and assign them to the right clinician.</p>
+        <p class="mb-0 hero-text">First visits and patients returning with Lab / Radiology results.</p>
       </div>
       <div class="d-flex flex-wrap gap-2 hero-actions">
         <a class="btn btn-light btn-sm" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
@@ -23,20 +23,31 @@
             <div class="queue-item">
               <div class="queue-main">
                 <div class="queue-patient-name">{{ entry.patient.name or entry.patient.full_name }}</div>
-                  <div class="queue-stage queue-stage-{{ entry.queue_identifier.key }}">
-                    <span class="stage-dot"></span>
-                    {{ entry.queue_identifier.label }}
-                  </div>
+
+                {% if entry.badge_key == 'both' %}
+                  <span class="status-pill" style="background:#7c3aed;color:#fff;">Results ready – Lab + Radiology</span>
+                {% elif entry.badge_key == 'lab' %}
+                  <span class="status-pill" style="background:#0d9488;color:#fff;">Results ready – Lab</span>
+                {% elif entry.badge_key == 'radiology' %}
+                  <span class="status-pill" style="background:#2563eb;color:#fff;">Results ready – Radiology</span>
+                {% else %}
+                  <span class="status-pill" style="background:#64748b;color:#fff;">First visit</span>
+                {% endif %}
+
                 <div class="queue-meta">ID: {{ entry.patient.national_id }} • {{ entry.patient.phone or 'No phone' }}</div>
                 <div class="queue-meta">Queued at {{ entry.queued_at.strftime('%Y-%m-%d %H:%M') }}</div>
               </div>
+
               <div class="queue-side">
                 <div class="queue-status-wrap mb-2">
-                  <span class="status-pill status-{{ entry.status|lower|replace('_','-') }}">{{ entry.status|capitalize }}</span>
+                  <span class="status-pill status-{{ entry.status|lower|replace('_','-') }}">{{ entry.status|replace('_',' ')|title }}</span>
                   <span class="doctor-badge">{{ entry.doctor or 'Unassigned' }}</span>
                 </div>
+
                 {% if session.get('role') in ['doctor', 'admin'] %}
-                  <button class="btn btn-sm btn-outline-primary queue-open" type="button" data-queue-id="{{ entry.id }}">Claim and open</button>
+                  <button class="btn btn-sm btn-outline-primary queue-open" type="button" data-queue-id="{{ entry.id }}">
+                    Claim and open
+                  </button>
                 {% elif session.get('role') in ['receptionist', 'records'] %}
                   <a class="btn btn-sm btn-outline-primary" href="{{ url_for('queue_assign', queue_id=entry.id) }}">Assign</a>
                 {% else %}
@@ -60,7 +71,6 @@
       btn.addEventListener('click', async (event) => {
         event.preventDefault();
         const queueId = btn.dataset.queueId;
-
         try {
           const res = await fetch(`/queue/claim/${queueId}`, {
             method: 'POST',

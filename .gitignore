@@ -5,3 +5,7 @@ instance/
 .env
 .vscode/
 .idea/
+
+.git-backup/
+.git-bad/
+

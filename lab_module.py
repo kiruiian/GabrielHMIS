@@ -188,6 +188,8 @@ def register_lab_module(app, db, Patient, Visit, ServiceRequest, AuditLog):
         verified_at = db.Column(db.DateTime)
 
         completed_at = db.Column(db.DateTime)
+        reviewed_by = db.Column(db.String(100))
+        reviewed_at = db.Column(db.DateTime)
 
         patient = db.relationship(
             Patient,
@@ -640,7 +642,6 @@ def register_lab_module(app, db, Patient, Visit, ServiceRequest, AuditLog):
                         "A result must be entered before verification.",
                         "danger",
                     )
-
                     return redirect(
                         url_for(
                             "lab_order",
@@ -652,9 +653,41 @@ def register_lab_module(app, db, Patient, Visit, ServiceRequest, AuditLog):
                 order.verified_at = datetime.utcnow()
                 order.completed_at = datetime.utcnow()
                 order.status = "Verified"
+                order.reviewed_by = None
+                order.reviewed_at = None
 
                 if order.service_request:
                     order.service_request.status = "Completed"
+
+                # Send patient back to doctor queue for result review
+                from flask import current_app
+                # QueueEntry and Visit are on the main app models – import via app context objects if needed
+                visit_id = order.visit_id
+                if visit_id:
+                    # Use raw SQL-safe approach through existing session
+                    queue = (
+                        db.session.execute(
+                            db.text(
+                                "SELECT id FROM queue_entry WHERE visit_id = :vid LIMIT 1"
+                            ),
+                            {"vid": visit_id},
+                        ).first()
+                    )
+                    if queue:
+                        db.session.execute(
+                            db.text(
+                                "UPDATE queue_entry SET status = 'results_ready' WHERE id = :qid"
+                            ),
+                            {"qid": queue[0]},
+                        )
+                    else:
+                        db.session.execute(
+                            db.text(
+                                "INSERT INTO queue_entry (visit_id, patient_id, status, queued_at) "
+                                "VALUES (:vid, :pid, 'results_ready', CURRENT_TIMESTAMP)"
+                            ),
+                            {"vid": visit_id, "pid": order.patient_id},
+                        )
 
                 audit(
                     "lab_result_verified",
@@ -665,17 +698,9 @@ def register_lab_module(app, db, Patient, Visit, ServiceRequest, AuditLog):
                 db.session.commit()
 
                 flash(
-                    "Laboratory result verified and released.",
+                    "Laboratory result verified and sent to doctor queue.",
                     "success",
                 )
-
-            return redirect(
-                url_for(
-                    "lab_order",
-                    order_id=order.id,
-                )
-            )
-
         return render_template(
             "lab_order.html",
             order=order,

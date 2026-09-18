@@ -101,46 +101,11 @@
         <thead>
           <tr><th>Description</th><th>Units</th><th>Unit price</th><th>Amount</th></tr>
         </thead>
-        <tbody>
-          <tr class="section-row"><td colspan="4">Pharmacy</td></tr>
+                <tbody>
+          {# ===== Consultation ===== #}
+          <tr class="section-row"><td colspan="4">Consultation</td></tr>
           <tr>
-            {% if pharmacy_prescriptions %}
-              <td colspan="4" class="p-0">
-                <table class="invoice-table mb-0">
-                  <tbody>
-                  {% for prescription in pharmacy_prescriptions %}
-                    <tr>
-                      <td>{{ prescription.medication }}</td>
-                      <td>{{ prescription.dispensed_units }}</td>
-                      <td>{{ '%.2f'|format(prescription.unit_price) }}</td>
-                      <td>{{ '%.2f'|format(prescription.pharmacy_amount) }}</td>
-                    </tr>
-                  {% endfor %}
-                  <tr class="subtotal-row">
-                    <td colspan="3">Pharmacy subtotal</td>
-                    <td>{{ '%.2f'|format(pharmacy_total) }}</td>
-                  </tr>
-                </tbody>
-                </table>
-              </td>
-            {% else %}
-              <td colspan="3">No pharmacy items</td>
-              <td>{{ 'Pending' if has_pending_pharmacy_charge else '0.00' }}</td>
-            {% endif %}
-          </tr>
-          <tr class="section-row"><td colspan="4">Laboratory</td></tr>
-          <tr>
-            <td>Laboratory tests</td>
-            <td>1</td>
-            <td>{{ '%.2f'|format(lab_subtotal) }}</td>
-            <td>{{ '%.2f'|format(lab_subtotal) }}</td>
-          </tr>
-          <tr class="subtotal-row">
-            <td colspan="3">Laboratory subtotal</td>
-            <td>{{ '%.2f'|format(lab_subtotal) }}</td>
-          </tr>          <tr class="section-row"><td colspan="4">Consultation</td></tr>
-          <tr>
-            <td>Consultation fee</td>
+            <td>Consultation fee ({{ visit.visit_type or 'Visit' }})</td>
             <td>1</td>
             <td>{{ '%.2f'|format(visit.consultation_amount) if visit.consultation_amount is not none else 'Pending' }}</td>
             <td>{{ '%.2f'|format(visit.consultation_amount) if visit.consultation_amount is not none else 'Pending' }}</td>
@@ -149,9 +114,89 @@
             <td colspan="3">Consultation subtotal</td>
             <td>{{ '%.2f'|format(visit.consultation_amount) if visit.consultation_amount is not none else 'Pending' }}</td>
           </tr>
+
+          {# ===== Laboratory ===== #}
+          {# ===== Laboratory ===== #}
+<tr class="section-row"><td colspan="4">Laboratory</td></tr>
+{% if lab_orders %}
+  {% for order in lab_orders %}
+    {% if order.items %}
+      {% for item in order.items %}
+      <tr>
+        <td>{{ item.lab_test.test_name if item.lab_test else order.test_name }}</td>
+        <td>1</td>
+        <td>{{ '%.2f'|format(item.price or 0) }}</td>
+        <td>{{ '%.2f'|format(item.price or 0) }}</td>
+      </tr>
+      {% endfor %}
+    {% else %}
+      {# fallback for older single-test orders #}
+      <tr>
+        <td>{{ order.test_name }}</td>
+        <td>1</td>
+        <td>0.00</td>
+        <td>0.00</td>
+      </tr>
+    {% endif %}
+  {% endfor %}
+  <tr class="subtotal-row">
+    <td colspan="3">Laboratory subtotal</td>
+    <td>{{ '%.2f'|format(lab_subtotal) }}</td>
+  </tr>
+{% else %}
+  <tr>
+    <td colspan="3">No laboratory items</td>
+    <td>0.00</td>
+  </tr>
+{% endif %}
+          {# ===== Radiology ===== #}
+          <tr class="section-row"><td colspan="4">Radiology / Imaging</td></tr>
+          {% if radiology_studies %}
+            {% for study in radiology_studies %}
+            <tr>
+              <td>{{ study.modality }} — {{ study.exam_name }}</td>
+              <td>1</td>
+              <td>{{ '%.2f'|format(study.charge_amount or 0) }}</td>
+              <td>{{ '%.2f'|format(study.charge_amount or 0) }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="subtotal-row">
+              <td colspan="3">Radiology subtotal</td>
+              <td>{{ '%.2f'|format(radiology_total) }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="3">No radiology items</td>
+              <td>0.00</td>
+            </tr>
+          {% endif %}
+
+          {# ===== Pharmacy ===== #}
+          <tr class="section-row"><td colspan="4">Pharmacy</td></tr>
+          {% if pharmacy_prescriptions %}
+            {% for prescription in pharmacy_prescriptions %}
+            <tr>
+              <td>{{ prescription.medication }}</td>
+              <td>{{ prescription.dispensed_units }}</td>
+              <td>{{ '%.2f'|format(prescription.unit_price) }}</td>
+              <td>{{ '%.2f'|format(prescription.pharmacy_amount) }}</td>
+            </tr>
+            {% endfor %}
+            <tr class="subtotal-row">
+              <td colspan="3">Pharmacy subtotal</td>
+              <td>{{ '%.2f'|format(pharmacy_total) }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="3">No pharmacy items</td>
+              <td>{{ 'Pending' if has_pending_pharmacy_charge else '0.00' }}</td>
+            </tr>
+          {% endif %}
+
+          {# ===== Grand Total ===== #}
           <tr class="total-row">
-            <td colspan="3">TOTAL BILL</td>
-            <td>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</td>
+            <td colspan="3"><strong>TOTAL BILL</strong></td>
+            <td><strong>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</strong></td>
           </tr>
         </tbody>
       </table>

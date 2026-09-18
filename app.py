@@ -100,6 +100,44 @@ PAYMENT_METHODS = {
     "JUBILEE",
 }
 CONSULTATION_FEES = {"New Visit": 1000, "Revisit": 500}
+CONSULTATION_FEES = {"New Visit": 1000, "Revisit": 500}
+
+IMAGING_PRICES = {
+    # X-Ray
+    "Chest X-Ray (PA)": 800,
+    "Chest X-Ray (Lateral)": 1000,
+    "Abdominal X-Ray": 1000,
+    "Skull X-Ray": 1200,
+    "Cervical Spine": 1200,
+    "Lumbar Spine": 1200,
+    "Pelvis": 1000,
+    "KUB": 1000,
+    "Extremity X-Ray": 800,
+    # Ultrasound
+    "Abdominal Ultrasound": 1500,
+    "Pelvic / Gynaecological Ultrasound": 1500,
+    "Obstetric Ultrasound": 1800,
+    "Thyroid Ultrasound": 1200,
+    "Breast Ultrasound": 1500,
+    "Scrotal Ultrasound": 1200,
+    "Soft Tissue Ultrasound": 1200,
+    "Doppler Studies": 2500,
+    # CT
+    "CT Head": 6000,
+    "CT Chest": 8000,
+    "CT Abdomen / Pelvis": 10000,
+    "CT Spine": 8000,
+    "CT Angiogram": 12000,
+    # MRI
+    "MRI Brain": 15000,
+    "MRI Cervical Spine": 15000,
+    "MRI Lumbar Spine": 15000,
+    "MRI Knee": 12000,
+    "MRI Shoulder": 12000,
+    "MRI Abdomen": 15000,
+}
+
+ACTIVE_QUEUE_STATUSES = {"queued", "in_progress"}
 ACTIVE_QUEUE_STATUSES = {"queued", "in_progress"}
 
 IMAGING_MODALITIES = {
@@ -448,6 +486,9 @@ class ImagingStudy(db.Model):
 
     findings = db.Column(db.Text)
     impression = db.Column(db.Text)
+    charge_amount = db.Column(db.Numeric(10, 2))
+    reviewed_by = db.Column(db.String(100))
+    reviewed_at = db.Column(db.DateTime)
 
     patient = db.relationship(
         "Patient", backref=db.backref("imaging_studies", lazy=True)
@@ -657,6 +698,22 @@ def ensure_schema():
                 "WHERE prescription.visit_id IS NULL"
             )
         )
+        imaging_columns = {
+            row[1] for row in db.session.execute(text("PRAGMA table_info(imaging_study)"))
+        }
+        if "charge_amount" not in imaging_columns:
+            db.session.execute(
+                text("ALTER TABLE imaging_study ADD COLUMN charge_amount NUMERIC(10, 2)")
+            )
+            imaging_columns = {
+            row[1] for row in db.session.execute(text("PRAGMA table_info(imaging_study)"))
+        }
+        if "charge_amount" not in imaging_columns:
+            db.session.execute(text("ALTER TABLE imaging_study ADD COLUMN charge_amount NUMERIC(10, 2)"))
+        if "reviewed_by" not in imaging_columns:
+            db.session.execute(text("ALTER TABLE imaging_study ADD COLUMN reviewed_by VARCHAR(100)"))
+        if "reviewed_at" not in imaging_columns:
+            db.session.execute(text("ALTER TABLE imaging_study ADD COLUMN reviewed_at DATETIME"))
         db.session.commit()
 
 
@@ -944,6 +1001,7 @@ def patient_card(national_id):
                     clinical_indication=clinical_indication or None,
                     requested_by=session.get("full_name", "Doctor"),
                     status="pending",
+                    charge_amount=IMAGING_PRICES.get(exam_name, 0),
                 )
 
                 db.session.add(study)
@@ -1327,15 +1385,64 @@ def complete_visit(national_id):
 @app.route("/outpatient-queue")
 @login_required(roles=CLINICAL_READ_ROLES | QUEUE_ASSIGNMENT_ROLES)
 def outpatient_queue():
-    visible_statuses = {"queued", "with_doctor", "in_progress"}
+    visible_statuses = {"queued", "with_doctor", "in_progress", "results_ready"}
     queue_entries = (
         QueueEntry.query.filter(QueueEntry.status.in_(visible_statuses))
-        .order_by(QueueEntry.queued_at.desc())
+        .order_by(QueueEntry.queued_at.asc())
         .all()
     )
+
+    LabOrder = app.config.get("LAB_ORDER_MODEL")
+
+    decorated = []
     for entry in queue_entries:
         entry.queue_identifier = get_queue_identifier(entry.patient_id)
-    return render_template("outpatient_queue.html", queue_entries=queue_entries)
+
+        has_lab = False
+        has_radiology = False
+
+        if LabOrder:
+            has_lab = (
+                LabOrder.query.filter(
+                    LabOrder.patient_id == entry.patient_id,
+                    LabOrder.status == "Verified",
+                    LabOrder.reviewed_at.is_(None),
+                ).first()
+                is not None
+            )
+
+        has_radiology = (
+            ImagingStudy.query.filter(
+                ImagingStudy.patient_id == entry.patient_id,
+                ImagingStudy.status == "completed",
+                ImagingStudy.reviewed_at.is_(None),
+            ).first()
+            is not None
+        )
+
+        if has_lab and has_radiology:
+            entry.badge_key = "both"
+            entry.badge_label = "Results ready – Lab + Radiology"
+            entry.sort_priority = 0
+        elif has_lab:
+            entry.badge_key = "lab"
+            entry.badge_label = "Results ready – Lab"
+            entry.sort_priority = 1
+        elif has_radiology:
+            entry.badge_key = "radiology"
+            entry.badge_label = "Results ready – Radiology"
+            entry.sort_priority = 2
+        else:
+            entry.badge_key = "first"
+            entry.badge_label = "First visit"
+            entry.sort_priority = 3
+
+        decorated.append(entry)
+
+    # Results ready first, then first-visit patients
+    decorated.sort(key=lambda e: (e.sort_priority, e.queued_at or datetime.utcnow()))
+
+    return render_template("outpatient_queue.html", queue_entries=decorated)
 
 
 @app.route("/patient/<national_id>/send-to-doctor", methods=["POST"])
@@ -1492,9 +1599,10 @@ def invoices():
             )
             .all()
         )
+
+        # Lab charges
         LabOrder = app.config.get("LAB_ORDER_MODEL")
         lab_subtotal = 0
-
         if LabOrder:
             lab_orders = LabOrder.query.filter_by(visit_id=visit.id).all()
             lab_subtotal = sum(
@@ -1502,6 +1610,13 @@ def invoices():
                 for order in lab_orders
                 for item in order.items
             )
+
+        # Radiology charges
+        radiology_total = sum(
+            float(s.charge_amount or 0)
+            for s in ImagingStudy.query.filter_by(visit_id=visit.id).all()
+        )
+
         has_pending_pharmacy_charge = (
             Prescription.query.filter(
                 Prescription.visit_id == visit.id,
@@ -1510,20 +1625,24 @@ def invoices():
             ).first()
             is not None
         )
+
         consultation_total = (
             float(visit.consultation_amount)
             if visit.consultation_amount is not None
             else None
         )
+
         invoice_total = (
-            consultation_total + lab_subtotal + pharmacy_total
+            consultation_total + lab_subtotal + pharmacy_total + radiology_total
             if consultation_total is not None and not has_pending_pharmacy_charge
             else None
         )
+
         paid_total = sum(
             float(payment.amount)
             for payment in InvoicePayment.query.filter_by(visit_id=visit.id).all()
         )
+
         payment_status = (
             "Pending billing"
             if invoice_total is None
@@ -1533,11 +1652,14 @@ def invoices():
                 else "Partially paid" if paid_total > 0 else "Unpaid"
             )
         )
+
         balance = (
             max(invoice_total - paid_total, 0) if invoice_total is not None else None
         )
+
         if status_filter and payment_status != status_filter:
             continue
+
         invoice_rows.append(
             {
                 "visit": visit,
@@ -1555,7 +1677,6 @@ def invoices():
         status_filter=status_filter,
     )
 
-
 @app.route("/invoices/<int:visit_id>")
 @login_required(roles=INVOICE_VIEW_ROLES)
 def invoice_detail(visit_id):
@@ -1564,10 +1685,12 @@ def invoice_detail(visit_id):
         Visit.invoice_number.isnot(None),
         Visit.invoice_number != "",
     ).first_or_404()
+
     pharmacy_prescriptions = (
         Prescription.query.filter_by(visit_id=visit.id)
         .filter(
-            Prescription.status == "dispensed", Prescription.pharmacy_amount.isnot(None)
+            Prescription.status == "dispensed",
+            Prescription.pharmacy_amount.isnot(None),
         )
         .order_by(Prescription.dispensed_at.asc())
         .all()
@@ -1575,9 +1698,11 @@ def invoice_detail(visit_id):
     pharmacy_total = sum(
         float(item.pharmacy_amount or 0) for item in pharmacy_prescriptions
     )
-    LabOrder = app.config.get("LAB_ORDER_MODEL")
-    lab_subtotal = 0
 
+    # Lab charges
+    LabOrder = app.config.get("LAB_ORDER_MODEL")
+    lab_orders = []
+    lab_subtotal = 0
     if LabOrder:
         lab_orders = LabOrder.query.filter_by(visit_id=visit.id).all()
         lab_subtotal = sum(
@@ -1585,6 +1710,28 @@ def invoice_detail(visit_id):
             for order in lab_orders
             for item in order.items
         )
+   # Radiology charges – also catch studies that were never linked to a visit
+    radiology_studies = ImagingStudy.query.filter(
+    db.or_(
+        ImagingStudy.visit_id == visit.id,
+        db.and_(
+            ImagingStudy.patient_id == visit.patient_id,
+            ImagingStudy.visit_id.is_(None),
+        ),
+    )
+).all()
+
+# Fill missing prices on the fly
+    for s in radiology_studies:
+        if s.charge_amount is None or s.charge_amount == 0:
+            price = IMAGING_PRICES.get(s.exam_name)
+            if price:
+                s.charge_amount = price
+                db.session.add(s)
+    db.session.commit()
+
+    radiology_total = sum(float(s.charge_amount or 0) for s in radiology_studies)
+
     has_pending_pharmacy_charge = (
         Prescription.query.filter(
             Prescription.visit_id == visit.id,
@@ -1593,16 +1740,19 @@ def invoice_detail(visit_id):
         ).first()
         is not None
     )
+
     consultation_total = (
         float(visit.consultation_amount)
         if visit.consultation_amount is not None
         else None
     )
+
     invoice_total = (
-        consultation_total + lab_subtotal + pharmacy_total
+        consultation_total + lab_subtotal + pharmacy_total + radiology_total
         if consultation_total is not None and not has_pending_pharmacy_charge
         else None
     )
+
     payments = (
         InvoicePayment.query.filter_by(visit_id=visit.id)
         .order_by(InvoicePayment.received_at.desc())
@@ -1610,6 +1760,7 @@ def invoice_detail(visit_id):
     )
     paid_total = sum(float(payment.amount) for payment in payments)
     balance = max(invoice_total - paid_total, 0) if invoice_total is not None else None
+
     payment_status = (
         "Pending billing"
         if invoice_total is None
@@ -1625,7 +1776,10 @@ def invoice_detail(visit_id):
         patient=visit.patient,
         pharmacy_prescriptions=pharmacy_prescriptions,
         pharmacy_total=pharmacy_total,
+        lab_orders=lab_orders,
         lab_subtotal=lab_subtotal,
+        radiology_studies=radiology_studies,
+        radiology_total=radiology_total,
         has_pending_pharmacy_charge=has_pending_pharmacy_charge,
         invoice_total=invoice_total,
         payments=payments,
@@ -1660,10 +1814,29 @@ def record_invoice_payment(visit_id):
         float(item.pharmacy_amount or 0)
         for item in Prescription.query.filter_by(visit_id=visit.id)
         .filter(
-            Prescription.status == "dispensed", Prescription.pharmacy_amount.isnot(None)
+            Prescription.status == "dispensed",
+            Prescription.pharmacy_amount.isnot(None),
         )
         .all()
     )
+
+    # Lab charges
+    LabOrder = app.config.get("LAB_ORDER_MODEL")
+    lab_subtotal = 0
+    if LabOrder:
+        lab_orders = LabOrder.query.filter_by(visit_id=visit.id).all()
+        lab_subtotal = sum(
+            float(item.price or 0)
+            for order in lab_orders
+            for item in order.items
+        )
+
+    # Radiology charges
+    radiology_total = sum(
+        float(s.charge_amount or 0)
+        for s in ImagingStudy.query.filter_by(visit_id=visit.id).all()
+    )
+
     has_pending_pharmacy_charge = (
         Prescription.query.filter(
             Prescription.visit_id == visit.id,
@@ -1672,23 +1845,28 @@ def record_invoice_payment(visit_id):
         ).first()
         is not None
     )
+
     consultation_total = (
         float(visit.consultation_amount)
         if visit.consultation_amount is not None
         else None
     )
+
     invoice_total = (
-        consultation_total + pharmacy_total
+        consultation_total + lab_subtotal + pharmacy_total + radiology_total
         if consultation_total is not None and not has_pending_pharmacy_charge
         else None
     )
+
     paid_total = sum(
         float(payment.amount)
         for payment in InvoicePayment.query.filter_by(visit_id=visit.id).all()
     )
+
     if invoice_total is None:
         flash("Complete billing before recording a payment.", "warning")
         return redirect(url_for("invoice_detail", visit_id=visit.id))
+
     if amount > invoice_total - paid_total:
         flash(
             f"Payment exceeds the outstanding balance of {invoice_total - paid_total:.2f}.",
@@ -1797,7 +1975,7 @@ def queue_assign(queue_id):
 @login_required(roles="doctor")
 def queue_claim(queue_id):
     queue = QueueEntry.query.get_or_404(queue_id)
-    if queue.status not in {"queued", "with_doctor"}:
+    if queue.status not in {"queued", "with_doctor", "results_ready"}:
         return jsonify({"error": "This queue entry is no longer available."}), 409
     queue.doctor = session.get("full_name", session.get("username"))
     queue.status = "in_progress"
@@ -2162,6 +2340,7 @@ def radiology_study(study_id):
             if not findings and not impression:
                 flash("Please enter findings or impression before saving.", "danger")
                 return redirect(url_for("radiology_study", study_id=study.id))
+
             study.findings = findings or None
             study.impression = impression or None
             study.performed_by = session.get(
@@ -2169,8 +2348,37 @@ def radiology_study(study_id):
             )
             study.performed_at = datetime.utcnow()
             study.status = "completed"
+            study.reviewed_by = None
+            study.reviewed_at = None
+
             if study.service_request:
                 study.service_request.status = "Completed"
+
+            # Send patient back to doctor queue for result review
+            visit_id = study.visit_id
+            if not visit_id:
+                latest_visit = (
+                    Visit.query.filter_by(patient_id=study.patient_id)
+                    .order_by(Visit.started_at.desc())
+                    .first()
+                )
+                if latest_visit:
+                    visit_id = latest_visit.id
+                    study.visit_id = visit_id
+
+            if visit_id:
+                queue = QueueEntry.query.filter_by(visit_id=visit_id).first()
+                if queue:
+                    queue.status = "results_ready"
+                else:
+                    db.session.add(
+                        QueueEntry(
+                            visit_id=visit_id,
+                            patient_id=study.patient_id,
+                            status="results_ready",
+                        )
+                    )
+
             audit(
                 "imaging_completed",
                 "imaging_study",
@@ -2178,9 +2386,8 @@ def radiology_study(study_id):
                 f"exam={study.exam_name}",
             )
             db.session.commit()
-            flash("Report saved and study completed.", "success")
+            flash("Report saved. Patient sent back to doctor queue for review.", "success")
             return redirect(url_for("radiology_queue"))
-
         if action == "upload_images":
             files = request.files.getlist("images")
             saved = 0
