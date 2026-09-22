@@ -21,7 +21,13 @@
                 <tr><th>Interpretation / comments</th><td>{{ order.interpretation or '—' }}</td></tr>
             </table>
             <div class="mt-4"><strong>Verified by:</strong> {{ order.verified_by or '—' }}<br><strong>Date:</strong> {{ order.verified_at.strftime('%d %b %Y %H:%M') if order.verified_at else '—' }}</div>
-            <div class="text-center mt-5 d-print-none"><button class="btn btn-primary" onclick="window.print()">Print</button></div>
+            <div class="text-center mt-5 d-print-none d-flex justify-content-center gap-2 flex-wrap">
+    <button type="button" class="btn btn-primary" onclick="window.print()">Print</button>
+    <button type="button" class="btn btn-outline-secondary" onclick="window.close()">Close</button>
+    <a href="{{ url_for('patient_card', national_id=order.patient.national_id) }}" class="btn btn-outline-primary">
+        ← Back to patient card
+    </a>
+</div>
         </div>
     </div>
 </div>

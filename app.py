@@ -100,7 +100,7 @@ PAYMENT_METHODS = {
     "JUBILEE",
 }
 CONSULTATION_FEES = {"New Visit": 1000, "Revisit": 500}
-CONSULTATION_FEES = {"New Visit": 1000, "Revisit": 500}
+
 
 IMAGING_PRICES = {
     # X-Ray
@@ -138,7 +138,7 @@ IMAGING_PRICES = {
 }
 
 ACTIVE_QUEUE_STATUSES = {"queued", "in_progress"}
-ACTIVE_QUEUE_STATUSES = {"queued", "in_progress"}
+
 
 IMAGING_MODALITIES = {
     "X-Ray": [
@@ -178,6 +178,33 @@ IMAGING_MODALITIES = {
         "MRI Abdomen",
     ],
 }
+COMMON_ICD10 = [
+    {"code": "A09", "text": "Infectious gastroenteritis and colitis"},
+    {"code": "A90", "text": "Dengue fever"},
+    {"code": "B24", "text": "HIV disease"},
+    {"code": "B50.9", "text": "Plasmodium falciparum malaria, unspecified"},
+    {"code": "B54", "text": "Unspecified malaria"},
+    {"code": "E11.9", "text": "Type 2 diabetes mellitus without complications"},
+    {"code": "E14.9", "text": "Unspecified diabetes mellitus"},
+    {"code": "I10", "text": "Essential (primary) hypertension"},
+    {"code": "J06.9", "text": "Acute upper respiratory infection, unspecified"},
+    {"code": "J18.9", "text": "Pneumonia, unspecified"},
+    {"code": "J45.9", "text": "Asthma, unspecified"},
+    {"code": "K29.7", "text": "Gastritis, unspecified"},
+    {"code": "K59.1", "text": "Functional diarrhea"},
+    {"code": "L30.9", "text": "Dermatitis, unspecified"},
+    {"code": "M25.5", "text": "Pain in joint"},
+    {"code": "M54.5", "text": "Low back pain"},
+    {"code": "M79.1", "text": "Myalgia"},
+    {"code": "N39.0", "text": "Urinary tract infection, site not specified"},
+    {"code": "O80", "text": "Single spontaneous delivery"},
+    {"code": "R50.9", "text": "Fever, unspecified"},
+    {"code": "R51", "text": "Headache"},
+    {"code": "S93.4", "text": "Sprain of ankle"},
+    {"code": "T14.1", "text": "Injury of unspecified body region"},
+    {"code": "Z00.0", "text": "General adult medical examination"},
+    {"code": "Z23", "text": "Encounter for immunization"},
+]
 
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "bmp", "webp", "pdf"}
 UPLOAD_FOLDER = os.path.join(
@@ -230,9 +257,8 @@ def determine_visit_type(patient):
         if patient.visit_type == "Revisit" or previous_visits > 0
         else "New Visit"
     )
-
-
-# ====================== USER MODEL ======================
+#databases
+#user model
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -246,8 +272,7 @@ class User(db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
-
-# ====================== PATIENT ======================
+#patient model
 class Patient(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     national_id = db.Column(db.String(20), unique=True, nullable=False)
@@ -329,9 +354,17 @@ class QueueEntry(db.Model):
     visit = db.relationship("Visit", backref=db.backref("queue_entry", uselist=False))
     patient = db.relationship("Patient", backref=db.backref("queue_entries", lazy=True))
 
+class Diagnosis(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    visit_id = db.Column(db.Integer, db.ForeignKey("visit.id"), nullable=True)
+    icd_code = db.Column(db.String(20), nullable=False)
+    diagnosis_text = db.Column(db.String(255), nullable=False)
+    diagnosed_by = db.Column(db.String(100))
+    diagnosed_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ====================== NEW MODELS FOR PATIENT CARD ======================
-
+    patient = db.relationship("Patient", backref=db.backref("diagnoses", lazy=True))
+    visit = db.relationship("Visit", backref=db.backref("diagnoses", lazy=True))
 
 class VitalSigns(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -510,8 +543,8 @@ class ImagingImage(db.Model):
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     uploaded_by = db.Column(db.String(100))
 
-
-# ====================== AUTH ======================
+#routes
+# AUTHentication
 def login_required(roles=None):
     def decorator(f):
         @wraps(f)
@@ -615,7 +648,7 @@ def parse_optional_date(raw_value):
         raise ValueError("Please enter a valid prescription date.") from error
 
 
-# ====================== DB SETUP ======================
+
 def ensure_schema():
     with app.app_context():
         db.create_all()
@@ -699,22 +732,22 @@ def ensure_schema():
             )
         )
         imaging_columns = {
-            row[1] for row in db.session.execute(text("PRAGMA table_info(imaging_study)"))
+            row[1]
+            for row in db.session.execute(text("PRAGMA table_info(imaging_study)"))
         }
         if "charge_amount" not in imaging_columns:
             db.session.execute(
                 text("ALTER TABLE imaging_study ADD COLUMN charge_amount NUMERIC(10, 2)")
             )
-            imaging_columns = {
-            row[1] for row in db.session.execute(text("PRAGMA table_info(imaging_study)"))
-        }
-        if "charge_amount" not in imaging_columns:
-            db.session.execute(text("ALTER TABLE imaging_study ADD COLUMN charge_amount NUMERIC(10, 2)"))
         if "reviewed_by" not in imaging_columns:
-            db.session.execute(text("ALTER TABLE imaging_study ADD COLUMN reviewed_by VARCHAR(100)"))
+            db.session.execute(
+                text("ALTER TABLE imaging_study ADD COLUMN reviewed_by VARCHAR(100)")
+            )
         if "reviewed_at" not in imaging_columns:
-            db.session.execute(text("ALTER TABLE imaging_study ADD COLUMN reviewed_at DATETIME"))
-        db.session.commit()
+            db.session.execute(
+                text("ALTER TABLE imaging_study ADD COLUMN reviewed_at DATETIME")
+            )
+    db.session.commit()
 
 
 with app.app_context():
@@ -743,7 +776,7 @@ def create_admin(username, full_name, password):
     click.echo(f"Administrator {username} created.")
 
 
-# ====================== LOGIN ======================
+#login route
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -807,7 +840,7 @@ def register_staff():
     return render_template("register_staff.html")
 
 
-# ====================== MAIN ROUTES ======================
+#main routes
 @app.route("/")
 @login_required()
 def dashboard():
@@ -940,13 +973,13 @@ def patient_card(national_id):
                 f"patient_id={patient.id}",
             )
             flash("Clinical note saved!", "success")
+
         elif action == "service_request":
             if user_role not in SERVICE_REQUEST_ROLES and user_role != "admin":
                 flash("Only doctors can request clinical services.", "danger")
                 return redirect(url_for("patient_card", national_id=national_id))
 
             service_type = request.form.get("service_type", "").strip()
-
             if service_type not in {"Lab", "Pharmacy", "Radiology", "Referral"}:
                 flash("Please choose a valid service.", "danger")
                 return redirect(url_for("patient_card", national_id=national_id))
@@ -957,7 +990,6 @@ def patient_card(national_id):
                 clinical_indication = request.form.get(
                     "clinical_indication", ""
                 ).strip()
-
                 if (
                     modality not in IMAGING_MODALITIES
                     or exam_name not in IMAGING_MODALITIES.get(modality, [])
@@ -966,7 +998,6 @@ def patient_card(national_id):
                     return redirect(url_for("patient_card", national_id=national_id))
 
                 description = f"{modality}: {exam_name}"
-
                 if clinical_indication:
                     description += f" — {clinical_indication}"
 
@@ -976,22 +1007,17 @@ def patient_card(national_id):
                     description=description,
                     requested_by=session.get("full_name", "Doctor"),
                 )
-
                 db.session.add(svc)
                 db.session.flush()
 
                 active_visit = (
                     Visit.query.filter(
                         Visit.patient_id == patient.id,
-                        db.or_(
-                            Visit.status != "completed",
-                            Visit.status.is_(None),
-                        ),
+                        db.or_(Visit.status != "completed", Visit.status.is_(None)),
                     )
                     .order_by(Visit.started_at.desc())
                     .first()
                 )
-
                 study = ImagingStudy(
                     patient_id=patient.id,
                     visit_id=active_visit.id if active_visit else None,
@@ -1003,108 +1029,74 @@ def patient_card(national_id):
                     status="pending",
                     charge_amount=IMAGING_PRICES.get(exam_name, 0),
                 )
-
                 db.session.add(study)
                 db.session.flush()
-
                 audit(
                     "imaging_requested",
                     "imaging_study",
                     study.id,
                     f"patient_id={patient.id}; {modality}/{exam_name}",
                 )
-
                 flash(f"{exam_name} request sent to Radiology.", "success")
 
             elif service_type == "Lab":
                 selected_test_ids = request.form.getlist("lab_test_ids")
-
                 if not selected_test_ids:
                     flash("Please select at least one laboratory test.", "danger")
-                    return redirect(
-                        url_for("patient_card", national_id=national_id)
-                    )
+                    return redirect(url_for("patient_card", national_id=national_id))
 
                 LabTest = app.config.get("LAB_TEST_MODEL")
                 LabOrder = app.config.get("LAB_ORDER_MODEL")
                 LabOrderItem = app.config.get("LAB_ORDER_ITEM_MODEL")
-
                 if not LabTest or not LabOrder or not LabOrderItem:
-                    flash(
-                        "Laboratory catalogue is not available.",
-                        "danger",
-                    )
-                    return redirect(
-                        url_for("patient_card", national_id=national_id)
-                    )
+                    flash("Laboratory catalogue is not available.", "danger")
+                    return redirect(url_for("patient_card", national_id=national_id))
 
                 try:
                     test_ids = [int(test_id) for test_id in selected_test_ids]
                 except ValueError:
                     flash("Invalid laboratory test selection.", "danger")
-                    return redirect(
-                        url_for("patient_card", national_id=national_id)
-                    )
+                    return redirect(url_for("patient_card", national_id=national_id))
 
                 tests = (
-                    LabTest.query
-                    .filter(
-                        LabTest.id.in_(test_ids),
-                        LabTest.active.is_(True),
+                    LabTest.query.filter(
+                        LabTest.id.in_(test_ids), LabTest.active.is_(True)
                     )
                     .order_by(LabTest.id)
                     .all()
                 )
-
                 if len(tests) != len(set(test_ids)):
                     flash(
                         "One or more selected laboratory tests are invalid or inactive.",
                         "danger",
                     )
-                    return redirect(
-                        url_for("patient_card", national_id=national_id)
-                    )
+                    return redirect(url_for("patient_card", national_id=national_id))
 
                 active_visit = (
                     Visit.query.filter(
                         Visit.patient_id == patient.id,
-                        db.or_(
-                            Visit.status != "completed",
-                            Visit.status.is_(None),
-                        ),
+                        db.or_(Visit.status != "completed", Visit.status.is_(None)),
                     )
                     .order_by(Visit.started_at.desc())
                     .first()
                 )
-
                 if not active_visit:
-                    flash(
-                        "The patient does not have an active visit.",
-                        "danger",
-                    )
-                    return redirect(
-                        url_for("patient_card", national_id=national_id)
-                    )
+                    flash("The patient does not have an active visit.", "danger")
+                    return redirect(url_for("patient_card", national_id=national_id))
 
                 test_names = [test.test_name for test in tests]
-
                 specimen_types = list(
                     dict.fromkeys(
-                        test.specimen_type
-                        for test in tests
-                        if test.specimen_type
+                        test.specimen_type for test in tests if test.specimen_type
                     )
                 )
-
                 description = "Laboratory tests: " + ", ".join(test_names)
-
                 svc = ServiceRequest(
                     patient_id=patient.id,
                     service_type="Lab",
                     description=description,
                     requested_by=session.get("full_name", "Doctor"),
                 )
-
                 db.session.add(svc)
                 db.session.flush()
 
@@ -1113,84 +1105,180 @@ def patient_card(national_id):
                     visit_id=active_visit.id,
                     service_request_id=svc.id,
                     test_name=", ".join(test_names),
-                    specimen_type=", ".join(specimen_types)
-                    or "See test items",
-                    priority=request.form.get(
-                        "lab_priority",
-                        "Routine",
-                    ).strip()
+                    specimen_type=", ".join(specimen_types) or "See test items",
+                    priority=request.form.get("lab_priority", "Routine").strip()
                     or "Routine",
                     status="Requested",
                     requested_by=session.get("full_name", "Doctor"),
                 )
-
                 db.session.add(lab_order)
                 db.session.flush()
 
                 lab_subtotal = 0
-
                 for test in tests:
                     item_price = float(test.price or 0)
-
-                    item = LabOrderItem(
-                        lab_order_id=lab_order.id,
-                        lab_test_id=test.id,
-                        price=item_price,
-                        status="Requested",
+                    db.session.add(
+                        LabOrderItem(
+                            lab_order_id=lab_order.id,
+                            lab_test_id=test.id,
+                            price=item_price,
+                            status="Requested",
+                        )
                     )
-
-                    db.session.add(item)
                     lab_subtotal += item_price
-
-                db.session.flush()
 
                 audit(
                     "laboratory_requested",
                     "lab_order",
                     lab_order.id,
-                    f"patient_id={patient.id}; "
-                    f"visit_id={active_visit.id}; "
-                    f"tests={', '.join(test_names)}; "
-                    f"subtotal={lab_subtotal:.2f}",
+                    f"patient_id={patient.id}; visit_id={active_visit.id}; tests={', '.join(test_names)}; subtotal={lab_subtotal:.2f}",
                 )
-
                 flash(
-                    f"{len(tests)} laboratory test(s) sent successfully. "
-                    f"Lab subtotal: KES {lab_subtotal:,.2f}",
+                    f"{len(tests)} laboratory test(s) sent successfully. Lab subtotal: KES {lab_subtotal:,.2f}",
                     "success",
                 )
 
             elif service_type == "Referral":
-                description = request.form.get(
-                    "service_description",
-                    "",
-                ).strip()
-
+                description = request.form.get("service_description", "").strip()
                 if not description:
-                    flash(
-                        "Please describe the requested referral.",
-                        "danger",
-                    )
-                    return redirect(
-                        url_for("patient_card", national_id=national_id)
-                    )
-
+                    flash("Please describe the requested referral.", "danger")
+                    return redirect(url_for("patient_card", national_id=national_id))
                 db.session.add(
                     ServiceRequest(
                         patient_id=patient.id,
                         service_type="Referral",
                         description=description,
-                        requested_by=session.get(
-                            "full_name",
-                            "Doctor",
-                        ),
+                        requested_by=session.get("full_name", "Doctor"),
                     )
                 )
+                flash("Referral request sent successfully.", "success")
 
+        elif action == "diagnosis":
+            if user_role not in NOTE_ENTRY_ROLES and user_role != "admin":
+                flash("Only medical staff can record a diagnosis.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            icd_code = request.form.get("icd_code", "").strip()
+            diagnosis_text = request.form.get("diagnosis_text", "").strip()
+            if not icd_code or not diagnosis_text:
                 flash(
-                    "Referral request sent successfully.",
+                    "Select or enter an ICD code and diagnosis description.",
+                    "danger",
+                )
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            active_visit = (
+                Visit.query.filter(
+                    Visit.patient_id == patient.id,
+                    db.or_(Visit.status != "completed", Visit.status.is_(None)),
+                )
+                .order_by(Visit.started_at.desc())
+                .first()
+            )
+            dx = Diagnosis(
+                patient_id=patient.id,
+                visit_id=active_visit.id if active_visit else None,
+                icd_code=icd_code[:20],
+                diagnosis_text=diagnosis_text[:255],
+                diagnosed_by=session.get(
+                    "full_name", session.get("username", "Doctor")
+                ),
+            )
+            db.session.add(dx)
+            db.session.flush()
+            audit(
+                "diagnosis_recorded",
+                "diagnosis",
+                dx.id,
+                f"patient_id={patient.id}; visit_id={dx.visit_id}; {icd_code} {diagnosis_text}",
+            )
+            flash(f"Diagnosis saved: {icd_code} — {diagnosis_text}", "success")
+        elif action == "mark_lab_reviewed":
+            if user_role not in NOTE_ENTRY_ROLES and user_role != "admin":
+                flash("Only medical staff can mark lab results as reviewed.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+            LabOrder = app.config.get("LAB_ORDER_MODEL")
+            order_id = request.form.get("order_id", type=int)
+            if not LabOrder or not order_id:
+                flash("Invalid lab order.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+            order = LabOrder.query.filter_by(id=order_id, patient_id=patient.id).first()
+            if not order or order.status != "Verified":
+                flash("Lab result not found or not verified yet.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+            order.reviewed_by = session.get("full_name", session.get("username", "Doctor"))
+            order.reviewed_at = datetime.utcnow()
+            audit(
+                "lab_result_reviewed",
+                "lab_order",
+                order.id,
+                f"patient_id={patient.id}; by={order.reviewed_by}",
+            )
+            flash(f"Lab result marked as reviewed: {order.test_name}", "success")
+
+        elif action == "mark_radiology_reviewed":
+            if user_role not in NOTE_ENTRY_ROLES and user_role != "admin":
+                flash("Only medical staff can mark radiology as reviewed.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+            study_id = request.form.get("study_id", type=int)
+            study = ImagingStudy.query.filter_by(
+                id=study_id, patient_id=patient.id
+            ).first()
+            if not study or study.status != "completed":
+                flash("Radiology report not found or not completed yet.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+            study.reviewed_by = session.get(
+                "full_name", session.get("username", "Doctor")
+            )
+            study.reviewed_at = datetime.utcnow()
+            audit(
+                "radiology_reviewed",
+                "imaging_study",
+                study.id,
+                f"patient_id={patient.id}; by={study.reviewed_by}",
+            )
+            flash(
+                f"Radiology marked as reviewed: {study.modality} — {study.exam_name}",
+                "success",
+            )
+        elif action == "seen_by_doctor":
+            if user_role not in {"doctor", "admin"}:
+                flash("Only doctors can update this status.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            queue = (
+                QueueEntry.query.filter(
+                    QueueEntry.patient_id == patient.id,
+                    QueueEntry.status.in_(
+                        {
+                            "queued",
+                            "with_doctor",
+                            "in_progress",
+                            "results_ready",
+                        }
+                    ),
+                )
+                .order_by(QueueEntry.queued_at.desc())
+                .first()
+            )
+            if queue:
+                queue.status = "seen_by_doctor"
+                queue.doctor = session.get(
+                    "full_name", session.get("username", "Doctor")
+                )
+                audit(
+                    "queue_seen_by_doctor",
+                    "queue_entry",
+                    queue.id,
+                    f"patient_id={patient.id}",
+                )
+                flash(
+                    "Patient marked seen by doctor. Removed from active doctor queue — pharmacy can dispense if prescribed.",
                     "success",
                 )
+            else:
+                flash("No active doctor-queue entry found.", "warning")
+
         elif action == "prescription":
             if user_role not in SERVICE_REQUEST_ROLES and user_role != "admin":
                 flash("Only doctors can prescribe medication.", "danger")
@@ -1222,6 +1310,7 @@ def patient_card(national_id):
                     "danger",
                 )
                 return redirect(url_for("patient_card", national_id=national_id))
+
             active_visit = (
                 Visit.query.filter(
                     Visit.patient_id == patient.id,
@@ -1270,6 +1359,7 @@ def patient_card(national_id):
                 f"patient_id={patient.id}",
             )
             flash("Prescription sent to pharmacy.", "success")
+
         else:
             flash("Unknown patient-card action.", "danger")
             return redirect(url_for("patient_card", national_id=national_id))
@@ -1277,6 +1367,7 @@ def patient_card(national_id):
         db.session.commit()
         return redirect(url_for("patient_card", national_id=national_id))
 
+    # ---------- GET ----------
     user_role = session.get("role")
     vitals_query = VitalSigns.query.filter_by(patient_id=patient.id)
     if user_role == "doctor":
@@ -1284,7 +1375,8 @@ def patient_card(national_id):
         today_start = datetime.combine(today, datetime.min.time())
         tomorrow_start = today_start + timedelta(days=1)
         vitals_query = vitals_query.filter(
-            VitalSigns.timestamp >= today_start, VitalSigns.timestamp < tomorrow_start
+            VitalSigns.timestamp >= today_start,
+            VitalSigns.timestamp < tomorrow_start,
         )
     vitals = vitals_query.order_by(VitalSigns.timestamp.desc()).limit(10).all()
     notes = (
@@ -1332,16 +1424,63 @@ def patient_card(national_id):
         )
         db.session.commit()
         flash("Consultation billing has been updated on the invoice.", "success")
+
     LabTest = app.config.get("LAB_TEST_MODEL")
     lab_tests = []
-
     if LabTest:
         lab_tests = (
-            LabTest.query
-            .filter_by(active=True)
+            LabTest.query.filter_by(active=True)
             .order_by(LabTest.test_name.asc())
             .all()
         )
+
+    LabOrder = app.config.get("LAB_ORDER_MODEL")
+    ready_lab_orders = []
+    if LabOrder:
+        ready_lab_orders = (
+            LabOrder.query.filter(
+                LabOrder.patient_id == patient.id,
+                LabOrder.status == "Verified",
+                LabOrder.reviewed_at.is_(None),
+            )
+            .order_by(LabOrder.verified_at.desc())
+            .limit(20)
+            .all()
+        )
+
+    ready_radiology_studies = (
+        ImagingStudy.query.filter(
+            ImagingStudy.patient_id == patient.id,
+            ImagingStudy.status == "completed",
+            ImagingStudy.reviewed_at.is_(None),
+        )
+        .order_by(ImagingStudy.performed_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    diagnoses = (
+        Diagnosis.query.filter_by(patient_id=patient.id)
+        .order_by(Diagnosis.diagnosed_at.desc())
+        .limit(50)
+        .all()
+    )
+    visits = (
+        Visit.query.filter_by(patient_id=patient.id)
+        .order_by(Visit.started_at.desc())
+        .limit(30)
+        .all()
+    )
+    visit_prescriptions = {}
+    visit_diagnoses = {}
+    for v in visits:
+        visit_diagnoses[v.id] = [d for d in diagnoses if d.visit_id == v.id]
+        visit_prescriptions[v.id] = (
+            Prescription.query.filter_by(visit_id=v.id)
+            .order_by(Prescription.prescribed_at.asc())
+            .all()
+        )
+
     return render_template(
         "patient_card.html",
         patient=patient,
@@ -1350,10 +1489,17 @@ def patient_card(national_id):
         requests=requests,
         imaging_studies=imaging_studies,
         imaging_modalities=IMAGING_MODALITIES,
-        lab_tests= lab_tests,
+        lab_tests=lab_tests,
+        ready_lab_orders=ready_lab_orders,
+        ready_radiology_studies=ready_radiology_studies,
         active_visit=active_visit,
         user_role=user_role,
         queue_identifier=get_queue_identifier(patient.id),
+        diagnoses=diagnoses,
+        visits=visits,
+        visit_diagnoses=visit_diagnoses,
+        visit_prescriptions=visit_prescriptions,
+        common_icd10=COMMON_ICD10,
     )
 
 
@@ -1381,20 +1527,83 @@ def complete_visit(national_id):
     flash(f"Visit completed for {patient.full_name}.", "success")
     return redirect(url_for("dashboard"))
 
+def close_stale_outpatient_queue():
+    """Close open outpatient queue entries from previous UTC days only."""
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    open_statuses = {"queued", "with_doctor", "in_progress", "results_ready"}
+
+    stale_entries = QueueEntry.query.filter(
+        QueueEntry.status.in_(open_statuses),
+        QueueEntry.queued_at < today_start,
+    ).all()
+
+    for entry in stale_entries:
+        entry.status = "expired"
+
+    if stale_entries:
+        db.session.commit()
+def maybe_complete_visit_after_pharmacy(visit_id, patient_id):
+    """Close visit when no prescribed meds remain for this visit."""
+    if not visit_id:
+        return False
+
+    pending = Prescription.query.filter(
+        Prescription.visit_id == visit_id,
+        Prescription.status.in_(["prescribed", "Prescribed", "pending", "Pending"]),
+    ).count()
+    if pending > 0:
+        return False
+
+    visit = Visit.query.get(visit_id)
+    if not visit or (visit.status or "").lower() == "completed":
+        return False
+
+    visit.status = "completed"
+    if hasattr(visit, "completed_at"):
+        visit.completed_at = datetime.utcnow()
+
+    for queue in QueueEntry.query.filter(
+        QueueEntry.patient_id == patient_id,
+        QueueEntry.status.in_(
+            {
+                "queued",
+                "with_doctor",
+                "in_progress",
+                "results_ready",
+                "seen_by_doctor",
+            }
+        ),
+    ).all():
+        queue.status = "completed"
+
+    audit(
+        "visit_completed_pharmacy",
+        "visit",
+        visit.id,
+        f"patient_id={patient_id}",
+    )
+    return True
 
 @app.route("/outpatient-queue")
 @login_required(roles=CLINICAL_READ_ROLES | QUEUE_ASSIGNMENT_ROLES)
 def outpatient_queue():
-    visible_statuses = {"queued", "with_doctor", "in_progress", "results_ready"}
+    close_stale_outpatient_queue()
+
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    visible_statuses = {"queued", "with_doctor", "in_progress", "results_ready", "seen_by_doctor"}
+
     queue_entries = (
-        QueueEntry.query.filter(QueueEntry.status.in_(visible_statuses))
+        QueueEntry.query.filter(
+            QueueEntry.status.in_(visible_statuses),
+            QueueEntry.queued_at >= today_start,
+        )
         .order_by(QueueEntry.queued_at.asc())
         .all()
     )
 
     LabOrder = app.config.get("LAB_ORDER_MODEL")
-
     decorated = []
+
     for entry in queue_entries:
         entry.queue_identifier = get_queue_identifier(entry.patient_id)
 
@@ -1422,29 +1631,25 @@ def outpatient_queue():
 
         if has_lab and has_radiology:
             entry.badge_key = "both"
-            entry.badge_label = "Results ready – Lab + Radiology"
             entry.sort_priority = 0
         elif has_lab:
             entry.badge_key = "lab"
-            entry.badge_label = "Results ready – Lab"
             entry.sort_priority = 1
         elif has_radiology:
             entry.badge_key = "radiology"
-            entry.badge_label = "Results ready – Radiology"
             entry.sort_priority = 2
         else:
             entry.badge_key = "first"
-            entry.badge_label = "First visit"
             entry.sort_priority = 3
 
         decorated.append(entry)
 
-    # Results ready first, then first-visit patients
     decorated.sort(key=lambda e: (e.sort_priority, e.queued_at or datetime.utcnow()))
 
-    return render_template("outpatient_queue.html", queue_entries=decorated)
-
-
+    return render_template(
+        "outpatient_queue.html",
+        queue_entries=decorated,
+    )
 @app.route("/patient/<national_id>/send-to-doctor", methods=["POST"])
 @login_required(roles={"nurse", "triage"})
 def send_to_doctor(national_id):
@@ -1721,7 +1926,7 @@ def invoice_detail(visit_id):
     )
 ).all()
 
-# Fill missing prices on the fly
+# Fill missing prices 
     for s in radiology_studies:
         if s.charge_amount is None or s.charge_amount == 0:
             price = IMAGING_PRICES.get(s.exam_name)
@@ -1975,12 +2180,16 @@ def queue_assign(queue_id):
 @login_required(roles="doctor")
 def queue_claim(queue_id):
     queue = QueueEntry.query.get_or_404(queue_id)
-    if queue.status not in {"queued", "with_doctor", "results_ready"}:
+
+    # Allow reopening today's active outpatient patients
+    if queue.status not in {"queued", "with_doctor", "in_progress", "results_ready"}:
         return jsonify({"error": "This queue entry is no longer available."}), 409
+
     queue.doctor = session.get("full_name", session.get("username"))
     queue.status = "in_progress"
     audit("queue_claimed", "queue_entry", queue.id, f"doctor={queue.doctor}")
     db.session.commit()
+
     return jsonify(
         {
             "ok": True,
@@ -2145,7 +2354,7 @@ def dispense_prescription(prescription_id):
     )
     if pharmacy_request:
         pharmacy_request.status = "Completed"
-    audit(
+        audit(
         (
             "pharmacy_charge_recorded"
             if is_billing_completion
@@ -2155,8 +2364,19 @@ def dispense_prescription(prescription_id):
         prescription.id,
         f"patient_id={prescription.patient_id}; units={dispensed_units}; amount={prescription.pharmacy_amount}; dispensed_by={prescription.dispensed_by}",
     )
+
+    visit_closed = maybe_complete_visit_after_pharmacy(
+        prescription.visit_id, prescription.patient_id
+    )
     db.session.commit()
-    flash(f"{prescription.medication} marked as dispensed.", "success")
+
+    if visit_closed:
+        flash(
+            f"{prescription.medication} dispensed. Visit completed — no remaining prescriptions.",
+            "success",
+        )
+    else:
+        flash(f"{prescription.medication} marked as dispensed.", "success")
     return redirect(url_for("pharmacy_queue"))
 
 
@@ -2269,11 +2489,11 @@ def edit_patient(national_id):
     return render_template("patient_edit.html", patient=patient)
 
 
-# ====================== LABORATORY MODULE ======================
+# LABORATORY MODULE 
 register_lab_module(app, db, Patient, Visit, ServiceRequest, AuditLog)
 
 
-# ====================== RADIOLOGY ======================
+# RADIOLOGY 
 def allowed_image_file(filename):
     return (
         "." in filename
@@ -2311,10 +2531,15 @@ def radiology_queue():
 
 
 @app.route("/radiology/<int:study_id>", methods=["GET", "POST"])
-@login_required(roles=RADIOLOGY_ROLES | {"admin"})
+@login_required(roles=RADIOLOGY_ROLES | IMAGING_VIEW_ROLES | {"admin"})
 def radiology_study(study_id):
     study = ImagingStudy.query.get_or_404(study_id)
     patient = study.patient
+        # Doctors can view completed reports; only radiology staff can process them
+    if request.method == "POST":
+        if session.get("role") not in RADIOLOGY_ROLES | {"admin"}:
+            flash("Only radiology staff can update imaging studies.", "danger")
+            return redirect(url_for("radiology_study", study_id=study.id))
 
     if request.method == "POST":
         action = request.form.get("action", "").strip()
