@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from functools import wraps
 
+
 import click
 from dotenv import load_dotenv
 from flask import (
@@ -138,6 +139,23 @@ IMAGING_PRICES = {
 }
 
 ACTIVE_QUEUE_STATUSES = {"queued", "in_progress"}
+
+INPATIENT_ROLES = {"doctor", "nurse", "admin", "records", "receptionist","accounts"}
+
+
+WARDS = [
+    ('Male General', 'General', 'MG', 13),
+    ('Female General', 'General', 'FG', 6),
+    ('Maternity', 'Maternity', 'MAT', 6),
+    ('Private Ward', 'Private', 'PV', 9),
+    ('Pediatrics', 'Pediatrics', 'PED', 3),
+    ('Executive', 'Private', 'EX', 4),
+    ('General Private', 'Private', 'GP', 8),
+    ('Newborn Unit', 'Maternity', 'NB', 6),
+    ('Post Anaesthesia Unit', 'Theatre', 'PACU', 2),
+]
+
+
 
 
 IMAGING_MODALITIES = {
@@ -542,6 +560,53 @@ class ImagingImage(db.Model):
     original_name = db.Column(db.String(255))
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     uploaded_by = db.Column(db.String(100))
+
+class Ward(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
+    department = db.Column(db.String(80))
+    active = db.Column(db.Boolean, default=True)
+
+    beds = db.relationship("Bed", backref="ward", lazy=True)
+
+
+class Bed(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    ward_id = db.Column(db.Integer, db.ForeignKey("ward.id"), nullable=False)
+    label = db.Column(db.String(30), nullable=False)  # e.g. A1, B2
+    status = db.Column(db.String(20), default="available")  # available | occupied | blocked
+    active = db.Column(db.Boolean, default=True)
+
+    __table_args__ = (db.UniqueConstraint("ward_id", "label", name="uq_ward_bed"),)
+
+
+class Admission(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    bed_id = db.Column(db.Integer, db.ForeignKey("bed.id"), nullable=False)
+    admitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    admitted_by = db.Column(db.String(100))
+    admitting_doctor = db.Column(db.String(100))
+    reason = db.Column(db.String(255))
+    status = db.Column(db.String(20), default="admitted")  # admitted | discharged
+    discharged_at = db.Column(db.DateTime)
+    discharged_by = db.Column(db.String(100))
+    discharge_notes = db.Column(db.String(255))
+
+    patient = db.relationship("Patient", backref=db.backref("admissions", lazy=True))
+    bed = db.relationship("Bed", backref=db.backref("admissions", lazy=True))
+
+class WardNote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    admission_id = db.Column(db.Integer, db.ForeignKey("admission.id"), nullable=False) 
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    ote = db.Column(db.Text, nullable=False)
+    note_type = db.Column(db.String(40), default="nursing")  # nursing | doctor | progress
+    recorded_by = db.Column(db.String(100))
+    recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    admission = db.relationship("Admission", backref=db.backref("ward_notes", lazy=True))
+    patient = db.relationship("Patient", backref=db.backref("ward_notes", lazy=True))
 
 #routes
 # AUTHentication
@@ -1465,6 +1530,12 @@ def patient_card(national_id):
         .limit(50)
         .all()
     )
+    current_admission = (
+        Admission.query.filter_by(patient_id=patient.id, status="admitted")
+        .order_by(Admission.admitted_at.desc())
+        .first()
+    )
+    
     visits = (
         Visit.query.filter_by(patient_id=patient.id)
         .order_by(Visit.started_at.desc())
@@ -1499,6 +1570,7 @@ def patient_card(national_id):
         visits=visits,
         visit_diagnoses=visit_diagnoses,
         visit_prescriptions=visit_prescriptions,
+        current_admission=current_admission,
         common_icd10=COMMON_ICD10,
     )
 
@@ -2656,6 +2728,212 @@ def radiology_study(study_id):
 
     return render_template("radiology_study.html", study=study, patient=patient)
 
+@app.route("/inpatient")
+@login_required(roles=INPATIENT_ROLES | {"admin"})
+def inpatient_list():
+    admissions = (
+        Admission.query.filter_by(status="admitted")
+        .order_by(Admission.admitted_at.desc())
+        .all()
+    )
+    wards = Ward.query.filter_by(active=True).order_by(Ward.name.asc()).all()
+    free_beds = (
+        Bed.query.filter_by(status="available", active=True)
+        .order_by(Bed.ward_id.asc(), Bed.label.asc())
+        .all()
+    )
+
+    occupancy = []
+    for ward in wards:
+        beds = (
+            Bed.query.filter_by(ward_id=ward.id, active=True)
+            .order_by(Bed.label.asc())
+            .all()
+        )
+        free = sum(1 for b in beds if b.status == "available")
+        occupied = sum(1 for b in beds if b.status == "occupied")
+        occupancy.append(
+            {
+                "ward": ward,
+                "beds": beds,
+                "total": len(beds),
+                "free": free,
+                "occupied": occupied,
+            }
+        )
+
+    total_beds = sum(row["total"] for row in occupancy)
+    total_occupied = sum(row["occupied"] for row in occupancy)
+    total_free = sum(row["free"] for row in occupancy)
+    overall_pct = round((total_occupied / total_beds * 100) if total_beds else 0)
+
+    return render_template(
+        "inpatient_list.html",
+        admissions=admissions,
+        wards=wards,
+        free_beds=free_beds,
+        occupancy=occupancy,
+        total_beds=total_beds,
+        total_occupied=total_occupied,
+        total_free=total_free,
+        overall_pct=overall_pct,
+    )
+
+@app.route("/inpatient/<int:admission_id>")
+@login_required(roles=INPATIENT_ROLES | {"admin"})
+def inpatient_detail(admission_id):
+    adm = Admission.query.get_or_404(admission_id)
+    patient = adm.patient
+
+    notes = (
+        WardNote.query.filter_by(admission_id=adm.id)
+        .order_by(WardNote.recorded_at.desc())
+        .all()
+    )
+
+    diagnoses = (
+        Diagnosis.query.filter_by(patient_id=patient.id)
+        .order_by(Diagnosis.diagnosed_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    previous_admissions = (
+        Admission.query.filter(
+            Admission.patient_id == patient.id,
+            Admission.id != adm.id,
+        )
+        .order_by(Admission.admitted_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    visits = (
+        Visit.query.filter_by(patient_id=patient.id)
+        .order_by(Visit.started_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    return render_template(
+        "inpatient_detail.html",
+        admission=adm,
+        notes=notes,
+        diagnoses=diagnoses,
+        previous_admissions=previous_admissions,
+        visits=visits,
+    )
+
+
+@app.route("/inpatient/<int:admission_id>/note", methods=["POST"])
+@login_required(roles=INPATIENT_ROLES | {"admin"})
+def inpatient_add_note(admission_id):
+    adm = Admission.query.get_or_404(admission_id)
+    if adm.status != "admitted":
+        flash("Cannot add notes to a discharged admission.", "warning")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+
+    text = request.form.get("note", "").strip()
+    note_type = request.form.get("note_type", "nursing").strip() or "nursing"
+    if note_type not in {"nursing", "doctor", "progress"}:
+        note_type = "nursing"
+    if not text:
+        flash("Enter a note before saving.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+
+    wn = WardNote(
+        admission_id=adm.id,
+        patient_id=adm.patient_id,
+        note=text,
+        note_type=note_type,
+        recorded_by=session.get("full_name", session.get("username", "Staff")),
+    )
+    db.session.add(wn)
+    db.session.flush()
+    audit(
+        "nursing_note_recorded",
+        "ward_note",
+        wn.id,
+        f"admission_id={adm.id}; patient_id={adm.patient_id}; type={note_type}",
+    )
+    db.session.commit()
+    flash("Nursing note saved.", "success")
+    return redirect(url_for("inpatient_detail", admission_id=adm.id))
+
+@app.route("/inpatient/admit", methods=["POST"])
+@login_required(roles=INPATIENT_ROLES | {"admin"})
+def inpatient_admit():
+    national_id = request.form.get("national_id", "").strip()
+    bed_id = request.form.get("bed_id", type=int)
+    reason = request.form.get("reason", "").strip()[:255] or None
+    admitting_doctor = request.form.get("admitting_doctor", "").strip()[:100] or None
+
+    patient = Patient.query.filter_by(national_id=national_id).first()
+    if not patient:
+        flash("Patient not found. Register the patient first.", "danger")
+        return redirect(url_for("inpatient_list"))
+
+    bed = Bed.query.get(bed_id) if bed_id else None
+    if not bed or bed.status != "available" or not bed.active:
+        flash("Select an available bed.", "danger")
+        return redirect(url_for("inpatient_list"))
+
+    open_adm = Admission.query.filter_by(
+        patient_id=patient.id, status="admitted"
+    ).first()
+    if open_adm:
+        flash("This patient is already admitted.", "warning")
+        return redirect(url_for("inpatient_list"))
+
+    adm = Admission(
+        patient_id=patient.id,
+        bed_id=bed.id,
+        admitted_by=session.get("full_name", session.get("username", "Staff")),
+        admitting_doctor=admitting_doctor
+        or session.get("full_name", session.get("username")),
+        reason=reason,
+        status="admitted",
+    )
+    bed.status = "occupied"
+    db.session.add(adm)
+    db.session.flush()
+    audit(
+        "patient_admitted",
+        "admission",
+        adm.id,
+        f"patient_id={patient.id}; bed={bed.label}; ward_id={bed.ward_id}",
+    )
+    db.session.commit()
+    flash(
+        f"{patient.full_name} admitted to {bed.ward.name} — {bed.label}.",
+        "success",
+    )
+    return redirect(url_for("inpatient_list"))
+@app.route("/inpatient/<int:admission_id>/discharge", methods=["POST"])
+@login_required(roles=INPATIENT_ROLES | {"admin"})
+def inpatient_discharge(admission_id):
+    adm = Admission.query.get_or_404(admission_id)
+    if adm.status != "admitted":
+        flash("This admission is already closed.", "warning")
+        return redirect(url_for("inpatient_list"))
+
+    notes = request.form.get("discharge_notes", "").strip()[:255] or None
+    adm.status = "discharged"
+    adm.discharged_at = datetime.utcnow()
+    adm.discharged_by = session.get("full_name", session.get("username", "Staff"))
+    adm.discharge_notes = notes
+    if adm.bed:
+        adm.bed.status = "available"
+
+    audit(
+        "patient_discharged",
+        "admission",
+        adm.id,
+        f"patient_id={adm.patient_id}; bed_id={adm.bed_id}",
+    )
+    db.session.commit()
+    flash("Patient discharged and bed freed.", "success")
+    return redirect(url_for("inpatient_list"))
 
 @app.route("/imaging/file/<path:filename>")
 @login_required(roles=IMAGING_VIEW_ROLES)
@@ -2673,7 +2951,34 @@ def imaging_report_print(study_id):
         "imaging_report_print.html", study=study, patient=study.patient
     )
 
+WARDS = [
+    ('Male General', 'General', 'MG', 13),
+    ('Female General', 'General', 'FG', 6),
+    ('Maternity', 'Maternity', 'MAT', 6),
+    ('Private Ward', 'Private', 'PV', 9),
+    ('Pediatrics', 'Pediatrics', 'PED', 3),
+    ('Executive', 'Private', 'EX', 4),
+    ('General Private', 'Private', 'GP', 8),
+    ('Newborn Unit', 'Maternity', 'NB', 6),
+    ('Post Anaesthesia Unit', 'Theatre', 'PACU', 2),
+]
 
+with app.app_context():
+    db.create_all()
+    for name, dept, prefix, count in WARDS:
+        w = Ward.query.filter_by(name=name).first()
+        if not w:
+            w = Ward(name=name, department=dept, active=True)
+            db.session.add(w)
+            db.session.flush()
+        existing = {b.label for b in Bed.query.filter_by(ward_id=w.id).all()}
+        for i in range(1, count + 1):
+            label = f'{prefix}{i}'
+            if label not in existing:
+                db.session.add(Bed(ward_id=w.id, label=label, status='available', active=True))
+    db.session.commit()
+    print('Wards:', Ward.query.count())
+    print('Beds:', Bed.query.count())
 if __name__ == "__main__":
     app.run(
         debug=env_flag("FLASK_DEBUG"),

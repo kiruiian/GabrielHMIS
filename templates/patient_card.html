@@ -31,6 +31,17 @@
                         <span>{{ active_visit.visit_type or 'Outpatient visit' }} • started {{ active_visit.started_at.strftime('%d %b %Y at %H:%M') }}</span>
                     </div>
                     {% endif %}
+                                        {% if current_admission %}
+                    <div class="alert alert-info py-2 mb-0 mt-2">
+                      <strong>Inpatient:</strong>
+                      {{ current_admission.bed.ward.name }} — {{ current_admission.bed.label }}
+                      · admitted {{ current_admission.admitted_at.strftime('%d %b %Y %H:%M') }}
+                      {% if current_admission.admitting_doctor %}
+                      · {{ current_admission.admitting_doctor }}
+                      {% endif %}
+                      <a class="ms-2" href="{{ url_for('inpatient_list') }}">Ward list</a>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="col-lg-4">
                     <div class="action-toolbar">

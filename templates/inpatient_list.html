@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h3 class="mb-1">Inpatient</h3>
+      <p class="text-muted mb-0">Current admissions and bed allocation</p>
+    </div>
+  </div>
+
+ 
+
+  <div class="card mb-4 border-0 shadow-sm">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <div>
+          <h5 class="mb-0">Bed occupancy</h5>
+          <div class="text-muted small">Hospital-wide snapshot</div>
+        </div>
+        <div class="text-end">
+          <span class="fs-4 fw-semibold">{{ total_occupied }}</span>
+          <span class="text-muted">/ {{ total_beds }} occupied</span>
+          <div class="small text-muted">{{ total_free }} free · {{ overall_pct }}%</div>
+        </div>
+      </div>
+      <div class="progress" style="height: 14px;">
+        <div class="progress-bar {% if overall_pct >= 90 %}bg-danger{% elif overall_pct >= 70 %}bg-warning{% else %}bg-success{% endif %}"
+             role="progressbar"
+             style="width: {{ overall_pct }}%;"
+             aria-valuenow="{{ overall_pct }}" aria-valuemin="0" aria-valuemax="100">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ----- Per-ward cards ----- #}
+  <div class="row g-3 mb-4">
+    {% for row in occupancy|default([]) %}
+    {% set pct = ((row.occupied / row.total * 100) if row.total else 0)|round(0) %}
+    <div class="col-md-6 col-lg-4">
+      <div class="card h-100 shadow-sm">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <div class="fw-semibold">{{ row.ward.name }}</div>
+              <div class="small text-muted">{{ row.ward.department or 'Ward' }}</div>
+            </div>
+            <span class="badge {% if pct >= 90 %}bg-danger{% elif pct >= 70 %}bg-warning text-dark{% else %}bg-success{% endif %}">
+              {{ pct }}%
+            </span>
+          </div>
+
+          <div class="d-flex justify-content-between small mb-1">
+            <span>{{ row.occupied }} occupied</span>
+            <span class="text-muted">{{ row.free }} free</span>
+          </div>
+          <div class="progress mb-3" style="height: 10px;">
+            <div class="progress-bar {% if pct >= 90 %}bg-danger{% elif pct >= 70 %}bg-warning{% else %}bg-success{% endif %}"
+                 style="width: {{ pct }}%;"></div>
+          </div>
+
+          <div class="d-flex flex-wrap gap-1">
+            {% for bed in row.beds %}
+              {% if bed.status == 'available' %}
+              <span class="badge bg-success">{{ bed.label }}</span>
+              {% elif bed.status == 'occupied' %}
+              <span class="badge bg-danger">{{ bed.label }}</span>
+              {% else %}
+              <span class="badge bg-secondary">{{ bed.label }}</span>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ----- Admit form ----- #}
+  <div class="card mb-4 shadow-sm">
+    <div class="card-header"><strong>Admit patient</strong></div>
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('inpatient_admit') }}" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-3">
+          <label class="form-label">National ID</label>
+          <input type="text" name="national_id" class="form-control" required placeholder="Patient national ID">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Bed</label>
+          <select name="bed_id" class="form-select" required>
+            <option value="">Select available bed…</option>
+            {% for bed in free_beds %}
+            <option value="{{ bed.id }}">{{ bed.ward.name }} — {{ bed.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Admitting doctor</label>
+          <input type="text" name="admitting_doctor" class="form-control" placeholder="Doctor name">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label">Reason / diagnosis for admission</label>
+          <input type="text" name="reason" class="form-control" placeholder="Optional">
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary w-100">Admit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ----- Current admissions ----- #}
+  <div class="card shadow-sm">
+    <div class="card-header"><strong>Currently admitted ({{ admissions|length }})</strong></div>
+    <div class="card-body p-0">
+      {% if admissions %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Patient</th>
+              <th>Ward / Bed</th>
+              <th>Admitted</th>
+              <th>Doctor</th>
+              <th>Reason</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in admissions %}
+            <tr>
+              <td>
+                <a href="{{ url_for('inpatient_detail', admission_id=a.id) }}">{{ a.patient.full_name }}</a>
+                <div class="small text-muted">{{ a.patient.national_id }}</div>
+              </td>
+              <td>{{ a.bed.ward.name }} — <strong>{{ a.bed.label }}</strong></td>
+              <td>{{ a.admitted_at.strftime('%d %b %Y %H:%M') }}</td>
+              <td>{{ a.admitting_doctor or '—' }}</td>
+              <td>{{ a.reason or '—' }}</td>
+              <td class="text-end">
+                <a href="{{ url_for('inpatient_detail', admission_id=a.id) }}" class="btn btn-sm btn-outline-primary me-1">File</a>
+                <form method="POST" action="{{ url_for('inpatient_discharge', admission_id=a.id) }}" class="d-inline"
+                      onsubmit="return confirm('Discharge this patient and free the bed?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline-success">Discharge</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted p-3 mb-0">No patients currently admitted.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

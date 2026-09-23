@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-4">
+
+  <a href="{{ url_for('inpatient_list') }}" class="btn btn-sm btn-outline-secondary mb-3">← Inpatient list</a>
+
+  {# ----- Header ----- #}
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between gap-3">
+        <div>
+          <h3 class="mb-1">{{ admission.patient.full_name }}</h3>
+          <div class="text-muted">
+            ID {{ admission.patient.national_id }}
+            · {{ admission.patient.gender or '—' }}
+            · Age {{ admission.patient.age or '—' }}
+          </div>
+          <div class="mt-2">
+            <span class="badge bg-primary">{{ admission.bed.ward.name }} — {{ admission.bed.label }}</span>
+            <span class="badge bg-secondary">{{ admission.status }}</span>
+          </div>
+          <div class="small text-muted mt-2">
+            Admitted {{ admission.admitted_at.strftime('%d %b %Y %H:%M') }}
+            {% if admission.admitting_doctor %} · {{ admission.admitting_doctor }}{% endif %}
+          </div>
+          {% if admission.reason %}
+          <div class="mt-1"><strong>Admission reason:</strong> {{ admission.reason }}</div>
+          {% endif %}
+        </div>
+        <div class="d-flex flex-column gap-2">
+          <a class="btn btn-outline-primary btn-sm"
+             href="{{ url_for('patient_card', national_id=admission.patient.national_id) }}">
+            Full clinical card
+          </a>
+          {% if admission.status == 'admitted' %}
+          <form method="POST" action="{{ url_for('inpatient_discharge', admission_id=admission.id) }}"
+                onsubmit="return confirm('Discharge this patient and free the bed?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-success btn-sm w-100">Discharge</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ----- Diagnosis ----- #}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Diagnosis</strong></div>
+    <div class="card-body">
+      {% if admission.reason %}
+      <div class="mb-2">
+        <span class="text-muted small">Admission reason</span>
+        <div>{{ admission.reason }}</div>
+      </div>
+      {% endif %}
+      {% if diagnoses %}
+      <ul class="mb-0">
+        {% for d in diagnoses %}
+        <li>
+          <code>{{ d.icd_code }}</code> — {{ d.diagnosis_text }}
+          <span class="text-muted small">
+            {% if d.diagnosed_at %}· {{ d.diagnosed_at.strftime('%d %b %Y') }}{% endif %}
+            {% if d.diagnosed_by %}· {{ d.diagnosed_by }}{% endif %}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted mb-0">No ICD diagnosis recorded yet. Use the clinical card to add one.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ----- Nursing notes ----- #}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Nursing notes</strong></div>
+    <div class="card-body">
+      {% if admission.status == 'admitted' %}
+      <form method="POST" action="{{ url_for('inpatient_add_note', admission_id=admission.id) }}" class="mb-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label">Type</label>
+            <select name="note_type" class="form-select">
+              <option value="nursing" selected>Nursing</option>
+              <option value="doctor">Doctor</option>
+              <option value="progress">Progress</option>
+            </select>
+          </div>
+          <div class="col-md-9">
+            <label class="form-label">Note</label>
+            <textarea name="note" class="form-control" rows="3" required
+              placeholder="Observations, care given, plan..."></textarea>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3">Save nursing note</button>
+      </form>
+      {% endif %}
+
+      {% if notes %}
+        {% for n in notes %}
+        <div class="border-bottom py-3">
+          <div class="d-flex flex-wrap justify-content-between gap-2">
+            <span class="badge bg-secondary">{{ n.note_type }}</span>
+            <span class="small text-muted">
+              {{ n.recorded_at.strftime('%d %b %Y %H:%M') }} · {{ n.recorded_by }}
+            </span>
+          </div>
+          <div class="mt-2" style="white-space: pre-wrap;">{{ n.note }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="text-muted mb-0">No nursing notes yet for this admission.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ----- Patient history ----- #}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Patient history</strong></div>
+    <div class="card-body">
+      <h6>Previous admissions</h6>
+      {% if previous_admissions %}
+      <ul class="mb-3">
+        {% for pa in previous_admissions %}
+        <li>
+          {{ pa.admitted_at.strftime('%d %b %Y') }}
+          · {{ pa.bed.ward.name if pa.bed else '—' }} {{ pa.bed.label if pa.bed else '' }}
+          · {{ pa.status }}
+          {% if pa.reason %} — {{ pa.reason }}{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted small">No previous admissions.</p>
+      {% endif %}
+
+      <h6>Recent outpatient visits</h6>
+      {% if visits %}
+      <ul class="mb-0">
+        {% for v in visits %}
+        <li>
+          {{ v.started_at.strftime('%d %b %Y %H:%M') }}
+          · {{ v.visit_type or 'Visit' }}
+          · {{ v.status or '—' }}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted small mb-0">No visits on record.</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
