@@ -101,7 +101,7 @@
         <thead>
           <tr><th>Description</th><th>Units</th><th>Unit price</th><th>Amount</th></tr>
         </thead>
-                <tbody>
+                        <tbody>
           {# ===== Consultation ===== #}
           <tr class="section-row"><td colspan="4">Consultation</td></tr>
           <tr>
@@ -116,88 +116,118 @@
           </tr>
 
           {# ===== Laboratory ===== #}
-          {# ===== Laboratory ===== #}
-<tr class="section-row"><td colspan="4">Laboratory</td></tr>
-{% if lab_orders %}
-  {% for order in lab_orders %}
-    {% if order.items %}
-      {% for item in order.items %}
-      <tr>
-        <td>{{ item.lab_test.test_name if item.lab_test else order.test_name }}</td>
-        <td>1</td>
-        <td>{{ '%.2f'|format(item.price or 0) }}</td>
-        <td>{{ '%.2f'|format(item.price or 0) }}</td>
-      </tr>
-      {% endfor %}
-    {% else %}
-      {# fallback for older single-test orders #}
-      <tr>
-        <td>{{ order.test_name }}</td>
-        <td>1</td>
-        <td>0.00</td>
-        <td>0.00</td>
-      </tr>
-    {% endif %}
-  {% endfor %}
-  <tr class="subtotal-row">
-    <td colspan="3">Laboratory subtotal</td>
-    <td>{{ '%.2f'|format(lab_subtotal) }}</td>
-  </tr>
-{% else %}
-  <tr>
-    <td colspan="3">No laboratory items</td>
-    <td>0.00</td>
-  </tr>
-{% endif %}
+          <tr class="section-row"><td colspan="4">Laboratory</td></tr>
+          {% if lab_orders %}
+            {% for order in lab_orders %}
+              {% if order.items %}
+                {% for item in order.items %}
+                <tr>
+                  <td>{{ item.lab_test.test_name if item.lab_test else order.test_name }}</td>
+                  <td>1</td>
+                  <td>{{ '%.2f'|format(item.price or 0) }}</td>
+                  <td>{{ '%.2f'|format(item.price or 0) }}</td>
+                </tr>
+                {% endfor %}
+              {% else %}
+                <tr>
+                  <td>{{ order.test_name }}</td>
+                  <td>1</td>
+                  <td>—</td>
+                  <td>—</td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="4" class="text-muted">No laboratory charges</td></tr>
+          {% endif %}
+          <tr class="subtotal-row">
+            <td colspan="3">Laboratory subtotal</td>
+            <td>{{ '%.2f'|format(lab_subtotal or 0) }}</td>
+          </tr>
+
           {# ===== Radiology ===== #}
-          <tr class="section-row"><td colspan="4">Radiology / Imaging</td></tr>
+          <tr class="section-row"><td colspan="4">Radiology</td></tr>
           {% if radiology_studies %}
-            {% for study in radiology_studies %}
+            {% for s in radiology_studies %}
             <tr>
-              <td>{{ study.modality }} — {{ study.exam_name }}</td>
+              <td>{{ s.modality }} — {{ s.exam_name }}</td>
               <td>1</td>
-              <td>{{ '%.2f'|format(study.charge_amount or 0) }}</td>
-              <td>{{ '%.2f'|format(study.charge_amount or 0) }}</td>
+              <td>{{ '%.2f'|format(s.charge_amount or 0) }}</td>
+              <td>{{ '%.2f'|format(s.charge_amount or 0) }}</td>
             </tr>
             {% endfor %}
-            <tr class="subtotal-row">
-              <td colspan="3">Radiology subtotal</td>
-              <td>{{ '%.2f'|format(radiology_total) }}</td>
-            </tr>
           {% else %}
-            <tr>
-              <td colspan="3">No radiology items</td>
-              <td>0.00</td>
-            </tr>
+            <tr><td colspan="4" class="text-muted">No radiology charges</td></tr>
           {% endif %}
+          <tr class="subtotal-row">
+            <td colspan="3">Radiology subtotal</td>
+            <td>{{ '%.2f'|format(radiology_total or 0) }}</td>
+          </tr>
 
           {# ===== Pharmacy ===== #}
           <tr class="section-row"><td colspan="4">Pharmacy</td></tr>
           {% if pharmacy_prescriptions %}
-            {% for prescription in pharmacy_prescriptions %}
+            {% for rx in pharmacy_prescriptions %}
             <tr>
-              <td>{{ prescription.medication }}</td>
-              <td>{{ prescription.dispensed_units }}</td>
-              <td>{{ '%.2f'|format(prescription.unit_price) }}</td>
-              <td>{{ '%.2f'|format(prescription.pharmacy_amount) }}</td>
+              <td>{{ rx.medication }}{% if rx.strength %} {{ rx.strength }}{% endif %}</td>
+              <td>{{ rx.dispensed_units or 1 }}</td>
+              <td>{{ '%.2f'|format(rx.unit_price or 0) }}</td>
+              <td>{{ '%.2f'|format(rx.pharmacy_amount or 0) }}</td>
             </tr>
             {% endfor %}
-            <tr class="subtotal-row">
-              <td colspan="3">Pharmacy subtotal</td>
-              <td>{{ '%.2f'|format(pharmacy_total) }}</td>
-            </tr>
           {% else %}
-            <tr>
-              <td colspan="3">No pharmacy items</td>
-              <td>{{ 'Pending' if has_pending_pharmacy_charge else '0.00' }}</td>
-            </tr>
+            <tr><td colspan="4" class="text-muted">No pharmacy charges</td></tr>
           {% endif %}
-
-          {# ===== Grand Total ===== #}
-          <tr class="total-row">
-            <td colspan="3"><strong>TOTAL BILL</strong></td>
-            <td><strong>{{ '%.2f'|format(invoice_total) if invoice_total is not none else 'Pending' }}</strong></td>
+          <tr class="subtotal-row">
+            <td colspan="3">Pharmacy subtotal</td>
+            <td>{{ '%.2f'|format(pharmacy_total or 0) }}</td>
           </tr>
+
+          {# ===== Inpatient ===== #}
+          <tr class="section-row"><td colspan="4">Inpatient</td></tr>
+          {% if inpatient_admissions %}
+            {% for a in inpatient_admissions %}
+            <tr>
+              <td>Admission fee{% if a.bed and a.bed.ward %} — {{ a.bed.ward.name }}{% endif %}</td>
+              <td>1</td>
+              <td>{{ '%.2f'|format(a.admission_fee or 0) }}</td>
+              <td>{{ '%.2f'|format(a.admission_fee or 0) }}</td>
+            </tr>
+            <tr>
+              <td>Bed charges · {{ a.bed_days or 0 }} day(s) × {{ '%.2f'|format(a.bed_daily_rate or 0) }}{% if a.bed %} ({{ a.bed.label }}){% endif %}</td>
+              <td>{{ a.bed_days or 0 }}</td>
+              <td>{{ '%.2f'|format(a.bed_daily_rate or 0) }}</td>
+              <td>{{ '%.2f'|format(a.bed_charges or 0) }}</td>
+            </tr>
+            <tr>
+              <td>Doctor fee</td>
+              <td>1</td>
+              <td>{{ '%.2f'|format(a.doctor_fee or 0) }}</td>
+              <td>{{ '%.2f'|format(a.doctor_fee or 0) }}</td>
+            </tr>
+            <tr>
+              <td>Nursing fee</td>
+              <td>1</td>
+              <td>{{ '%.2f'|format(a.nursing_fee or 0) }}</td>
+              <td>{{ '%.2f'|format(a.nursing_fee or 0) }}</td>
+            </tr>
+            <tr>
+              <td>Consumables</td>
+              <td>1</td>
+              <td>{{ '%.2f'|format(a.consumables_fee or 0) }}</td>
+              <td>{{ '%.2f'|format(a.consumables_fee or 0) }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="4" class="text-muted">No inpatient charges</td></tr>
+          {% endif %}
+          <tr class="subtotal-row">
+            <td colspan="3">Inpatient subtotal</td>
+            <td>{{ '%.2f'|format(inpatient_total or 0) }}</td>
+          </tr>
+
+          #{# ===== Procedures (later) ===== #}
+          {# <tr class="section-row"><td colspan="4">Procedures</td></tr> #}
         </tbody>
       </table>
 
@@ -209,6 +239,44 @@
         <div class="invoice-summary-row"><span>Balance</span><strong>{{ '%.2f'|format(balance) if balance is not none else 'Pending' }}</strong></div>
         <div class="invoice-summary-row"><span>Account balance</span><strong>{{ '%.2f'|format(balance) if balance is not none else 'Pending' }}</strong></div>
       </div>
+
+{% if inpatient_admissions and session.get('role') in ['accounts', 'receptionist', 'records', 'admin'] %}
+{% set a = inpatient_admissions[0] %}
+<section class="mt-4 p-3 border rounded">
+  <h5 class="mb-3">Edit inpatient charges</h5>
+  <form method="POST" action="{{ url_for('update_inpatient_charges', visit_id=visit.id) }}" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="col-md-2">
+      <label class="form-label small">Bed days</label>
+      <input type="number" min="1" name="bed_days" class="form-control" value="{{ a.bed_days or 1 }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small">Daily rate</label>
+      <input type="number" step="0.01" min="0" name="bed_daily_rate" class="form-control" value="{{ '%.2f'|format(a.bed_daily_rate or 0) }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small">Admission fee</label>
+      <input type="number" step="0.01" min="0" name="admission_fee" class="form-control" value="{{ '%.2f'|format(a.admission_fee or 0) }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small">Doctor fee</label>
+      <input type="number" step="0.01" min="0" name="doctor_fee" class="form-control" value="{{ '%.2f'|format(a.doctor_fee or 0) }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small">Nursing fee</label>
+      <input type="number" step="0.01" min="0" name="nursing_fee" class="form-control" value="{{ '%.2f'|format(a.nursing_fee or 0) }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small">Consumables</label>
+      <input type="number" step="0.01" min="0" name="consumables_fee" class="form-control" value="{{ '%.2f'|format(a.consumables_fee or 0) }}">
+    </div>
+    <div class="col-12">
+      <button type="submit" class="btn btn-primary btn-sm">Update inpatient bill</button>
+      <span class="text-muted small ms-2">Bed total = days × daily rate (recalculated on save)</span>
+    </div>
+  </form>
+</section>
+{% endif %}
 
       {% if session.get('role') in ['accounts', 'admin'] %}
       <section class="payment-panel">
