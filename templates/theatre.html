@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+
+{% block title %}Theatre Schedule | St Gabriel Hospital{% endblock %}
+
+{% block content %}
+  <div class="page-hero page-hero-teal mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Surgical services</div>
+        <h3 class="mb-1 dashboard-title">Theatre Schedule</h3>
+        <p class="mb-0 hero-text">Plan procedures and follow them through operative and recovery documentation.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 hero-actions">
+        <a class="btn btn-light btn-sm" href="{{ url_for('inpatient_list') }}">Inpatient Queue</a>
+        <a class="btn btn-primary btn-sm" href="{{ url_for('patients') }}">Search Patients</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card search-panel mb-4">
+    <div class="card-body">
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-sm-6 col-md-4">
+          <label class="form-label" for="theatre-date">Schedule date</label>
+          <input class="form-control" id="theatre-date" type="date" name="date" value="{{ selected_date }}" required>
+        </div>
+        <div class="col-sm-6 col-md-3"><button class="btn btn-outline-primary w-100" type="submit">View schedule</button></div>
+      </form>
+    </div>
+  </div>
+
+  {% if can_manage %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Schedule a procedure</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('theatre_create') }}" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-4">
+          <label class="form-label" for="theatre-patient">Patient national ID</label>
+          <input class="form-control" id="theatre-patient" name="national_id" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="procedure-time">Date and time</label>
+          <input class="form-control" id="procedure-time" type="datetime-local" name="scheduled_at" value="{{ selected_date }}T09:00" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="procedure-name">Planned procedure</label>
+          <input class="form-control" id="procedure-name" name="procedure_name" maxlength="255" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="surgeon">Surgeon</label>
+          <select class="form-select" id="surgeon" name="surgeon">
+            <option value="">Unassigned</option>
+            {% for doctor in doctors %}
+            <option value="{{ doctor.full_name }}">{{ doctor.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="anesthetist">Anesthetist</label>
+          <input class="form-control" id="anesthetist" name="anesthetist" maxlength="100">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="admission-id">Active admission ID <span class="text-muted">(optional)</span></label>
+          <input class="form-control" id="admission-id" type="number" min="1" name="admission_id">
+        </div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Add to theatre schedule</button></div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card queue-panel mb-4">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div><h5 class="mb-0">Procedures for {{ selected_date }}</h5><div class="text-muted small">Outpatient and inpatient procedures</div></div>
+        <span class="badge bg-primary rounded-pill px-3 py-2">{{ procedures|length }} procedures</span>
+      </div>
+      {% if procedures %}
+      <div class="queue-list">
+        {% for procedure in procedures %}
+        <article class="queue-item">
+          <div class="queue-main">
+            <div class="queue-patient-name">{{ procedure.procedure_name }}</div>
+            <span class="status-pill status-{{ procedure.status|replace('_', '-') }}">{{ procedure.status|replace('_', ' ')|title }}</span>
+            <div class="queue-meta">{{ procedure.scheduled_at|local_datetime('%H:%M') }} · {{ procedure.patient.full_name }} · ID {{ procedure.patient.national_id }}</div>
+            <div class="queue-meta">Surgeon: {{ procedure.surgeon or 'Unassigned' }} · Anesthetist: {{ procedure.anesthetist or 'Unassigned' }}</div>
+            {% if procedure.admission %}<div class="queue-meta">Inpatient: {{ procedure.admission.bed.ward.name }} · Bed {{ procedure.admission.bed.label }}</div>{% else %}<div class="queue-meta">Outpatient / day procedure</div>{% endif %}
+          </div>
+          <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('theatre_procedure', procedure_id=procedure.id) }}">Operative record</a>
+            {% if can_manage and procedure.status == 'scheduled' %}
+            <form method="post" action="{{ url_for('theatre_cancel', procedure_id=procedure.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit">Cancel</button>
+            </form>
+            {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state text-center py-5"><h6 class="mb-2">No procedures scheduled</h6><div class="text-muted">There are no theatre procedures for this date.</div></div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

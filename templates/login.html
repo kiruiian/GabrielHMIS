@@ -63,15 +63,65 @@
     .form-label {
       font-weight: 600;
       color: #334155;
+      margin-bottom: 0.6rem;
+    }
+
+    .form-control {
+      border: 1.5px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      font-size: 0.95rem;
+      transition: all 0.3s ease;
+    }
+
+    .form-control:focus {
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
     }
 
     .btn-login {
       background: linear-gradient(135deg, #0d6efd, #0a5bd6);
       border: none;
       border-radius: 12px;
-      padding: 0.8rem 1rem;
+      padding: 0.85rem 1.5rem;
       font-weight: 700;
+      font-size: 1rem;
       box-shadow: 0 12px 22px rgba(13,110,253,0.18);
+      transition: all 0.3s ease;
+    }
+
+    .btn-login:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 28px rgba(13,110,253,0.25);
+    }
+
+    @media (max-width: 576px) {
+      .login-card {
+        margin: 20px;
+        border-radius: 16px;
+      }
+
+      .login-header {
+        padding: 1.5rem 1.5rem 1rem;
+      }
+
+      .login-body {
+        padding: 1.5rem;
+      }
+
+      .brand-badge {
+        width: 60px;
+        height: 60px;
+        font-size: 1.5rem;
+      }
+
+      h3.login-title {
+        font-size: 1.5rem;
+      }
+
+      h5 {
+        font-size: 1rem;
+      }
     }
   </style>
 </head>

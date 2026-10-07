@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+
+{% block title %}Appointments | St Gabriel Hospital{% endblock %}
+
+{% block content %}
+  <div class="page-hero page-hero-blue mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Clinic planning</div>
+        <h3 class="mb-1 dashboard-title">Appointments</h3>
+        <p class="mb-0 hero-text">Book and manage outpatient visits, then check patients into the queue.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 hero-actions">
+        <a class="btn btn-light btn-sm" href="{{ url_for('outpatient_queue') }}">Outpatient Queue</a>
+        <a class="btn btn-primary btn-sm" href="{{ url_for('patients') }}">Search Patients</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card search-panel mb-4">
+    <div class="card-body">
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-sm-6 col-md-4">
+          <label class="form-label" for="appointment-date">Schedule date</label>
+          <input class="form-control" id="appointment-date" type="date" name="date" value="{{ selected_date }}" required>
+        </div>
+        <div class="col-sm-6 col-md-3">
+          <button class="btn btn-outline-primary w-100" type="submit">View schedule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if can_manage %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Book an appointment</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('appointment_create') }}" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-4">
+          <label class="form-label" for="appointment-patient">Patient national ID</label>
+          <input class="form-control" id="appointment-patient" name="national_id" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="appointment-time">Date and time</label>
+          <input class="form-control" id="appointment-time" type="datetime-local" name="scheduled_at" value="{{ selected_date }}T09:00" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="appointment-doctor">Doctor</label>
+          <select class="form-select" id="appointment-doctor" name="doctor">
+            <option value="">Unassigned</option>
+            {% for doctor in doctors %}
+            <option value="{{ doctor.full_name }}">{{ doctor.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-9">
+          <label class="form-label" for="appointment-reason">Reason for visit</label>
+          <input class="form-control" id="appointment-reason" name="reason" maxlength="255">
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+          <button class="btn btn-primary w-100" type="submit">Book appointment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card queue-panel mb-4">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+          <h5 class="mb-0">Schedule for {{ selected_date }}</h5>
+          <div class="text-muted small">Appointments are checked into the normal outpatient workflow.</div>
+        </div>
+        <span class="badge bg-primary rounded-pill px-3 py-2">{{ appointments|length }} appointments</span>
+      </div>
+      {% if appointments %}
+      <div class="queue-list">
+        {% for appointment in appointments %}
+        <article class="queue-item">
+          <div class="queue-main">
+            <div class="queue-patient-name">{{ appointment.patient.full_name }}</div>
+            <span class="status-pill status-{{ appointment.status|replace('_', '-') }}">{{ appointment.status|replace('_', ' ')|title }}</span>
+            <div class="queue-meta">ID: {{ appointment.patient.national_id }} · {{ appointment.patient.phone or 'No phone' }}</div>
+            <div class="queue-meta">{{ appointment.scheduled_at|local_datetime('%H:%M') }} · {{ appointment.doctor or 'Doctor unassigned' }}</div>
+            {% if appointment.reason %}<div class="queue-meta">Reason: {{ appointment.reason }}</div>{% endif %}
+          </div>
+          {% if can_manage and appointment.status == 'scheduled' %}
+          <div class="appointment-actions">
+            <form method="post" action="{{ url_for('appointment_manage', appointment_id=appointment.id) }}" class="appointment-checkin">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="check_in">
+              <label class="form-label small mb-1" for="payer-{{ appointment.id }}">Payer for check-in</label>
+              <div class="d-flex gap-2">
+                <select class="form-select form-select-sm" id="payer-{{ appointment.id }}" name="payment_method" required>
+                  <option value="">Choose payer</option>
+                  {% for method in payment_methods %}
+                  <option value="{{ method }}">{{ method }}</option>
+                  {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-outline-primary text-nowrap" type="submit">Check in</button>
+              </div>
+            </form>
+            <details class="mt-2">
+              <summary class="small text-primary">Reschedule</summary>
+              <form method="post" action="{{ url_for('appointment_manage', appointment_id=appointment.id) }}" class="row g-2 mt-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="reschedule">
+                <div class="col-12">
+                  <input class="form-control form-control-sm" type="datetime-local" name="scheduled_at" value="{{ appointment.scheduled_at|local_datetime('%Y-%m-%dT%H:%M') }}" required>
+                </div>
+                <div class="col-12">
+                  <select class="form-select form-select-sm" name="doctor">
+                    <option value="">Unassigned</option>
+                    {% for doctor in doctors %}
+                    <option value="{{ doctor.full_name }}" {% if appointment.doctor == doctor.full_name %}selected{% endif %}>{{ doctor.full_name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-12">
+                  <input class="form-control form-control-sm" name="reason" maxlength="255" value="{{ appointment.reason or '' }}" aria-label="Reason for visit">
+                </div>
+                <div class="col-12"><button class="btn btn-sm btn-outline-secondary" type="submit">Save change</button></div>
+              </form>
+            </details>
+            <form method="post" action="{{ url_for('appointment_manage', appointment_id=appointment.id) }}" class="d-flex gap-2 mt-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger" name="action" value="cancel" type="submit">Cancel</button>
+              <button class="btn btn-sm btn-outline-secondary" name="action" value="no_show" type="submit">Mark no-show</button>
+            </form>
+          </div>
+          {% elif appointment.checked_in_visit_id %}
+          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('outpatient_queue') }}">View outpatient queue</a>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state text-center py-5">
+        <h6 class="mb-2">No appointments scheduled</h6>
+        <div class="text-muted">There are no appointments for this date.</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

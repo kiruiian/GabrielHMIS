@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Discharge Summary — {{ admission.patient.full_name }}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      max-width: 850px;
+      margin: 0 auto;
+      padding: 24px;
+      color: #1f2937;
+      font: 14px/1.5 Arial, Helvetica, sans-serif;
+    }
+    header { text-align: center; border-bottom: 2px solid #0d5ec9; padding-bottom: 16px; margin-bottom: 20px; }
+    header img { max-width: 100%; max-height: 90px; }
+    h1 { color: #0a3e92; font-size: 22px; margin: 12px 0 0; }
+    h2 { color: #0a3e92; font-size: 15px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin: 20px 0 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 7px 9px; border: 1px solid #dbe2ea; text-align: left; vertical-align: top; }
+    th { width: 22%; background: #f1f5f9; }
+    .section-content { white-space: pre-wrap; min-height: 24px; }
+    .signature { display: flex; gap: 36px; margin-top: 42px; }
+    .signature div { flex: 1; border-top: 1px solid #475569; padding-top: 6px; }
+    .actions { display: flex; gap: 8px; margin-bottom: 20px; }
+    button, a { padding: 8px 14px; border: 1px solid #94a3b8; border-radius: 5px; background: white; color: #1f2937; text-decoration: none; cursor: pointer; }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="actions no-print">
+    <button type="button" onclick="window.print()">Print discharge summary</button>
+    <a href="{{ url_for('inpatient_detail', admission_id=admission.id) }}">Back to inpatient file</a>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="no-print" style="padding: 10px; margin-bottom: 12px; border: 1px solid #94a3b8; border-radius: 5px;">
+      {{ message }}
+    </div>
+    {% endfor %}
+  {% endwith %}
+
+  <header>
+    <img src="{{ url_for('static', filename='images/letterhead.png') }}" alt="St Gabriel Hospital">
+    <h1>INPATIENT DISCHARGE SUMMARY</h1>
+    {% if admission.status != 'discharged' %}
+    <strong>DRAFT — NOT YET DISCHARGED</strong>
+    {% endif %}
+  </header>
+
+  <table>
+    <tr>
+      <th>Patient</th><td>{{ admission.patient.full_name }}</td>
+      <th>National ID</th><td>{{ admission.patient.national_id }}</td>
+    </tr>
+    <tr>
+      <th>Age / Gender</th><td>{{ admission.patient.age or '—' }} / {{ admission.patient.gender or '—' }}</td>
+      <th>Admission ID</th><td>{{ admission.id }}</td>
+    </tr>
+    <tr>
+      <th>Ward / Bed</th><td>{{ admission.bed.ward.name if admission.bed and admission.bed.ward else '—' }} / {{ admission.bed.label if admission.bed else '—' }}</td>
+      <th>Admitting doctor</th><td>{{ admission.admitting_doctor or '—' }}</td>
+    </tr>
+    <tr>
+      <th>Admission date / time</th><td>{{ admission.admitted_at.strftime('%d %b %Y %H:%M') if admission.admitted_at else '—' }}</td>
+      <th>Discharge date / time</th>
+      <td>{{ (admission.discharged_at or admission.discharge_summary_discharge_at).strftime('%d %b %Y %H:%M') if admission.discharged_at or admission.discharge_summary_discharge_at else '—' }}</td>
+    </tr>
+    <tr>
+      <th>Admission reason</th><td colspan="3">{{ admission.reason or '—' }}</td>
+    </tr>
+  </table>
+
+  <h2>Final diagnosis</h2>
+  <div class="section-content">{{ admission.discharge_diagnosis or '—' }}</div>
+
+  <h2>Hospital course and treatment</h2>
+  <div class="section-content">{{ admission.hospital_course or '—' }}</div>
+
+  <h2>Condition at discharge</h2>
+  <div class="section-content">{{ admission.discharge_condition or '—' }}</div>
+
+  <h2>Discharge medications</h2>
+  <div class="section-content">{{ admission.discharge_medications or 'None recorded' }}</div>
+
+  <h2>Follow-up and return instructions</h2>
+  <div class="section-content">{{ admission.follow_up_instructions or 'None recorded' }}</div>
+
+  {% if admission.discharge_notes %}
+  <h2>Additional notes</h2>
+  <div class="section-content">{{ admission.discharge_notes }}</div>
+  {% endif %}
+
+  <h2>{% if admission.status == 'discharged' %}Discharged by{% else %}Draft saved by{% endif %}</h2>
+  <div>
+    {% if admission.status == 'discharged' %}
+      {{ admission.discharged_by or '—' }}
+    {% else %}
+      {{ admission.discharge_summary_saved_by or '—' }}
+      {% if admission.discharge_summary_saved_at %} · {{ admission.discharge_summary_saved_at.strftime('%d %b %Y %H:%M') }}{% endif %}
+    {% endif %}
+  </div>
+  {% if admission.status != 'discharged' %}
+  <p class="no-print">This is a saved draft. Return to the inpatient file to edit it or finalize discharge.</p>
+  {% endif %}
+  <div class="signature">
+    <div>Clinician name and signature</div>
+    <div>Date</div>
+  </div>
+</body>
+</html>

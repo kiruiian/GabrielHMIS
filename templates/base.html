@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title> ..</title>
+    <title>{% block title %}St Gabriel Hospital HMIS{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
   </head>
   <body>
-   <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm mb-4">
+   <nav class="navbar navbar-expand-xxl navbar-dark bg-primary shadow-sm mb-4">
   <div class="container-fluid">
     <a class="navbar-brand d-flex align-items-center" href="{{ url_for('dashboard') }}">
       <img src="{{ url_for('static', filename='images/logo.png') }}"
@@ -18,37 +18,42 @@
       <span>St Gabriel Hospital</span>
     </a>
 
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
     </button>
 
     <div class="collapse navbar-collapse" id="navbarNav">
       <ul class="navbar-nav ms-auto gap-2">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link{% if request.endpoint == 'dashboard' %} active{% endif %}" {% if request.endpoint == 'dashboard' %}aria-current="page"{% endif %} href="{{ url_for('dashboard') }}">Dashboard</a></li>
         {% if session.get('role') in ['receptionist', 'doctor', 'nurse', 'triage', 'records', 'admin'] %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('patients') }}">Patients</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('records') }}">Records</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('outpatient_queue') }}">Queue</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint == 'patients' %} active{% endif %}" {% if request.endpoint == 'patients' %}aria-current="page"{% endif %} href="{{ url_for('patients') }}">Patients</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint == 'records' %} active{% endif %}" {% if request.endpoint == 'records' %}aria-current="page"{% endif %} href="{{ url_for('records') }}">Records</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint == 'outpatient_queue' %} active{% endif %}" {% if request.endpoint == 'outpatient_queue' %}aria-current="page"{% endif %} href="{{ url_for('outpatient_queue') }}">Outpatient Queue</a></li>
+        {% endif %}
+        <li class="nav-item"><a class="nav-link{% if request.endpoint in ['inpatient_list', 'inpatient_detail', 'inpatient_discharge_summary'] %} active{% endif %}" {% if request.endpoint in ['inpatient_list', 'inpatient_detail', 'inpatient_discharge_summary'] %}aria-current="page"{% endif %} href="{{ url_for('inpatient_list') }}">Inpatient Queue</a></li>
+        {% if session.get('role') in ['receptionist', 'doctor', 'nurse', 'triage', 'records', 'admin'] %}
+          <li class="nav-item"><a class="nav-link{% if request.endpoint in ['appointments', 'appointment_create', 'appointment_manage'] %} active{% endif %}" {% if request.endpoint in ['appointments', 'appointment_create', 'appointment_manage'] %}aria-current="page"{% endif %} href="{{ url_for('appointments') }}">Appointments</a></li>
+        {% endif %}
+        {% if session.get('role') in ['doctor', 'nurse', 'receptionist', 'records', 'admin'] %}
+          <li class="nav-item"><a class="nav-link{% if request.endpoint in ['theatre_list', 'theatre_procedure', 'theatre_create', 'theatre_cancel'] %} active{% endif %}" {% if request.endpoint in ['theatre_list', 'theatre_procedure', 'theatre_create', 'theatre_cancel'] %}aria-current="page"{% endif %} href="{{ url_for('theatre_list') }}">Theatre</a></li>
         {% endif %}
         {% if session.get('role') in ['accounts', 'admin', 'receptionist', 'records'] %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('invoices') }}">Invoices</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint == 'invoices' %} active{% endif %}" {% if request.endpoint == 'invoices' %}aria-current="page"{% endif %} href="{{ url_for('invoices') }}">Invoices</a></li>
         {% endif %}
         {% if session.get('role') == 'admin' %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('register_staff') }}">Staff</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint == 'register_staff' %} active{% endif %}" {% if request.endpoint == 'register_staff' %}aria-current="page"{% endif %} href="{{ url_for('register_staff') }}">Staff</a></li>
         {% endif %}
         {% if session.get('role') in ['pharmacist', 'admin'] %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('pharmacy_queue') }}">Pharmacy</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('pharmacy_inventory') }}">Inventory</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint == 'pharmacy_queue' %} active{% endif %}" {% if request.endpoint == 'pharmacy_queue' %}aria-current="page"{% endif %} href="{{ url_for('pharmacy_queue') }}">Pharmacy Queue</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint == 'pharmacy_inventory' %} active{% endif %}" {% if request.endpoint == 'pharmacy_inventory' %}aria-current="page"{% endif %} href="{{ url_for('pharmacy_inventory') }}">Inventory</a></li>
         {% endif %}
         {% if session.get('role') in ['radiographer', 'admin'] %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('radiology_queue') }}">Radiology</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint == 'radiology_queue' %} active{% endif %}" {% if request.endpoint == 'radiology_queue' %}aria-current="page"{% endif %} href="{{ url_for('radiology_queue') }}">Radiology Queue</a></li>
         {% endif %}
         {% if session.get('role') in ['lab', 'admin'] %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('lab_queue') }}">Laboratory</a></li>
+          <li class="nav-item"><a class="nav-link{% if request.endpoint == 'lab_queue' %} active{% endif %}" {% if request.endpoint == 'lab_queue' %}aria-current="page"{% endif %} href="{{ url_for('lab_queue') }}">Lab Queue</a></li>
         {% endif %}
-        {% if session.get('role') in ['admin', 'records'] %}
-        {% endif %}
-        <li class="nav-item d-flex align-items-center text-white-50 small px-2">{{ session.get('full_name') }}</li>
+        <li class="nav-item d-flex align-items-center text-white-50 small px-2 navbar-user">{{ session.get('full_name') }}</li>
         <li class="nav-item d-flex align-items-center">
           <form method="post" action="{{ url_for('logout') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -60,7 +65,7 @@
   </div>
 </nav>
 
-    <div class="container">
+    <main class="container">
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           {% for category, message in messages %}
@@ -70,10 +75,9 @@
       {% endwith %}
 
       {% block content %}{% endblock %}
-    </div>
+    </main>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>window.HMIS = { csrfToken: {{ csrf_token()|tojson }} };</script>
   </body>
 </html>
-

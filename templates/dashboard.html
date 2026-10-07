@@ -1,5 +1,7 @@
 {% extends 'base.html' %}
 
+{% block title %}Dashboard | St Gabriel Hospital{% endblock %}
+
 {% block content %}
   <style>
     .patient-row { cursor: pointer; transition: all 0.2s ease; }
@@ -27,25 +29,25 @@
     </div>
 
     <div class="row g-3 mb-4">
-      <div class="col-md-3 col-sm-6">
+      <div class="col-6 col-lg-3">
         <div class="metric-card metric-card-success">
           <div class="metric-label">Registered today</div>
           <div class="metric-value" id="todayPatients">0</div>
         </div>
       </div>
-      <div class="col-md-3 col-sm-6">
+      <div class="col-6 col-lg-3">
         <div class="metric-card metric-card-primary">
           <div class="metric-label">Visits today</div>
           <div class="metric-value" id="todayVisits">0</div>
         </div>
       </div>
-      <div class="col-md-3 col-sm-6">
+      <div class="col-6 col-lg-3">
         <div class="metric-card metric-card-info">
           <div class="metric-label">New visits</div>
           <div class="metric-value" id="newVisitCount">0</div>
         </div>
       </div>
-      <div class="col-md-3 col-sm-6">
+      <div class="col-6 col-lg-3">
         <div class="metric-card metric-card-warning">
           <div class="metric-label">Revisits</div>
           <div class="metric-value" id="revisitComparisonCount">0</div>
@@ -58,7 +60,7 @@
         <div class="card dashboard-card h-100">
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
-              <h5 class="mb-0">Visit comparison</h5>
+              <h5 class="mb-0">Today's visit mix</h5>
               <span class="text-muted small">New vs revisit</span>
             </div>
             <div class="row g-3">
@@ -138,6 +140,9 @@
     async function refreshStats() {
       try {
         const response = await fetch('{{ url_for('dashboard_stats') }}');
+        if (!response.ok) {
+          throw new Error(`Dashboard stats request failed: ${response.status}`);
+        }
         const data = await response.json();
         if (todayPatients) todayPatients.textContent = data.today_patients;
         if (todayVisits) todayVisits.textContent = data.today_visits;
@@ -158,6 +163,6 @@
     }
 
     refreshStats();
-    setInterval(refreshStats, 5000);
+    setInterval(refreshStats, 30000);
   </script>
 {% endblock %}

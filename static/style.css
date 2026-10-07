@@ -35,14 +35,162 @@ body::before {
 .navbar-nav .nav-link {
   color: rgba(255,255,255,0.84) !important;
   border-radius: 10px;
-  padding: 0.55rem 0.8rem !important;
+  padding: 0.5rem 0.55rem !important;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
 .navbar-nav .nav-link:hover,
 .navbar-nav .nav-link:focus {
   color: #ffffff !important;
   background: rgba(255,255,255,0.08);
+}
+
+.navbar-nav .nav-link.active {
+  color: #ffffff !important;
+  background: rgba(255,255,255,0.16);
+  font-weight: 700;
+}
+
+.navbar .container-fluid {
+  gap: 1rem;
+}
+
+.navbar-nav {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.navbar-brand {
+  white-space: nowrap;
+}
+
+.navbar-user {
+  border-left: 1px solid rgba(255,255,255,0.24);
+  line-height: 1.2;
+}
+
+.navbar-nav form {
+  margin: 0;
+}
+
+.navbar-toggler {
+  border-color: rgba(255,255,255,0.35);
+}
+
+.hero-banner {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  padding: 1.5rem;
+  background: linear-gradient(125deg, #0b4ca5 0%, #087bb5 58%, #087b78 100%);
+  box-shadow: 0 18px 36px rgba(15, 57, 112, 0.18);
+}
+
+.hero-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 88% 12%, rgba(255,255,255,0.18), transparent 28%),
+    radial-gradient(circle at 12% 100%, rgba(255,255,255,0.1), transparent 32%);
+  pointer-events: none;
+}
+
+.hero-banner-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+
+.hero-banner .eyebrow,
+.hero-banner .hero-text,
+.hero-banner .dashboard-title {
+  color: #fff;
+}
+
+.hero-banner .eyebrow {
+  color: rgba(255,255,255,0.82);
+}
+
+.hero-banner .hero-text {
+  color: rgba(255,255,255,0.9);
+}
+
+.hero-banner .hero-actions,
+.hero-banner .hero-badge-wrap {
+  z-index: 1;
+}
+
+.hero-banner .hero-actions {
+  margin-right: 82px;
+}
+
+.metric-value,
+.comparison-panel .fs-3 {
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-card .card-body {
+  padding: 1.35rem;
+}
+
+.quick-link-item:focus-visible {
+  outline: 3px solid rgba(13, 94, 201, 0.35);
+  outline-offset: 2px;
+}
+
+.inpatient-queue-item {
+  align-items: flex-start;
+}
+
+.status-inpatient {
+  background: rgba(16,185,129,0.12);
+  color: #047857;
+}
+
+.status-scheduled {
+  background: rgba(59,130,246,0.12);
+  color: #1d4ed8;
+}
+
+.status-checked-in,
+.status-in-progress {
+  background: rgba(14,165,233,0.12);
+  color: #0369a1;
+}
+
+.status-cancelled,
+.status-no-show {
+  background: rgba(148,163,184,0.18);
+  color: #475569;
+}
+
+.appointment-actions {
+  min-width: min(100%, 330px);
+}
+
+.white-space-pre {
+  margin-top: 0.35rem;
+  white-space: pre-wrap;
+}
+
+.inpatient-queue-item .queue-main {
+  display: grid;
+  justify-items: start;
+  gap: 0.35rem;
+}
+
+.inpatient-queue-item .queue-side {
+  min-width: 220px;
+  text-align: right;
+}
+
+.inpatient-queue-item .queue-status-wrap {
+  justify-content: flex-end;
 }
 
 .btn {
@@ -492,10 +640,42 @@ body::before {
 }
 
 @media (max-width: 767.98px) {
+  .hero-banner {
+    padding: 1.2rem;
+  }
+
+  .hero-banner-content {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .hero-banner .hero-actions {
+    margin-right: 0;
+  }
+
+  .navbar-user {
+    border-left: 0;
+    padding-left: 0.8rem !important;
+  }
+
+  .dashboard-card .card-body {
+    padding: 1.1rem;
+  }
+
   .page-hero-content,
   .queue-item {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .inpatient-queue-item .queue-side {
+    min-width: 0;
+    width: 100%;
+    text-align: left;
+  }
+
+  .inpatient-queue-item .queue-status-wrap {
+    justify-content: flex-start;
   }
 
   .hero-actions {
@@ -506,13 +686,28 @@ body::before {
     justify-content: flex-start;
   }
 }
+
+@media (max-width: 1399.98px) {
+  .navbar .container-fluid {
+    flex-wrap: wrap;
+  }
+
+  .navbar-collapse {
+    flex-basis: 100%;
+  }
+
+  .navbar-user {
+    border-left: 0;
+    padding-left: 0.8rem !important;
+  }
+}
 .metric-card {
   background: rgba(255, 255, 255, 0.76);
   border-radius: 18px;
   padding: 1.1rem 1rem;
   border: 1px solid rgba(15, 23, 42, 0.04);
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.06);
-  min-height: 130px;
+  min-height: 112px;
   display: flex;
   flex-direction: column;
   justify-content: center;

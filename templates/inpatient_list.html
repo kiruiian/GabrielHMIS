@@ -1,14 +1,21 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="container py-4">
-  <div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-      <h3 class="mb-1">Inpatient</h3>
-      <p class="text-muted mb-0">Current admissions and bed allocation</p>
+  <div class="page-hero page-hero-teal mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Ward flow</div>
+        <h3 class="mb-1 dashboard-title">Inpatient Queue</h3>
+        <p class="mb-0 hero-text">Current admissions, ward placement, and bed availability.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 hero-actions">
+        <a class="btn btn-light btn-sm" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+        {% if session.get('role') in ['receptionist', 'doctor', 'nurse', 'triage', 'records', 'admin'] %}
+        <a class="btn btn-primary btn-sm" href="{{ url_for('patients') }}">Search Patients</a>
+        {% endif %}
+      </div>
     </div>
   </div>
-
- 
 
   <div class="card mb-4 border-0 shadow-sm">
     <div class="card-body">
@@ -77,6 +84,7 @@
   </div>
 
   {# ----- Admit form ----- #}
+  {% if session.get('role') in ['doctor', 'nurse', 'admin', 'records', 'receptionist', 'accounts'] %}
   <div class="card mb-4 shadow-sm">
     <div class="card-header"><strong>Admit patient</strong></div>
     <div class="card-body">
@@ -109,50 +117,52 @@
       </form>
     </div>
   </div>
+  {% endif %}
 
   {# ----- Current admissions ----- #}
-  <div class="card shadow-sm">
-    <div class="card-header"><strong>Currently admitted ({{ admissions|length }})</strong></div>
-    <div class="card-body p-0">
-      {% if admissions %}
-      <div class="table-responsive">
-        <table class="table table-hover mb-0">
-          <thead>
-            <tr>
-              <th>Patient</th>
-              <th>Ward / Bed</th>
-              <th>Admitted</th>
-              <th>Doctor</th>
-              <th>Reason</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for a in admissions %}
-            <tr>
-              <td>
-                <a href="{{ url_for('inpatient_detail', admission_id=a.id) }}">{{ a.patient.full_name }}</a>
-                <div class="small text-muted">{{ a.patient.national_id }}</div>
-              </td>
-              <td>{{ a.bed.ward.name }} — <strong>{{ a.bed.label }}</strong></td>
-              <td>{{ a.admitted_at.strftime('%d %b %Y %H:%M') }}</td>
-              <td>{{ a.admitting_doctor or '—' }}</td>
-              <td>{{ a.reason or '—' }}</td>
-              <td class="text-end">
-                <a href="{{ url_for('inpatient_detail', admission_id=a.id) }}" class="btn btn-sm btn-outline-primary me-1">File</a>
-                <form method="POST" action="{{ url_for('inpatient_discharge', admission_id=a.id) }}" class="d-inline"
-                      onsubmit="return confirm('Discharge this patient and free the bed?');">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-sm btn-outline-success">Discharge</button>
-                </form>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+  <div class="card queue-panel mb-4">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+          <h5 class="mb-0">Currently admitted</h5>
+          <div class="text-muted small">Patients occupying an inpatient bed</div>
+        </div>
+        <span class="badge bg-primary rounded-pill px-3 py-2">{{ admissions|length }} admitted</span>
       </div>
+      {% if admissions %}
+        <div class="queue-list">
+          {% for a in admissions %}
+            <article class="queue-item inpatient-queue-item">
+              <div class="queue-main">
+                <div class="queue-patient-name">
+                {% if session.get('role') in ['doctor', 'nurse', 'admin', 'records', 'receptionist', 'accounts'] %}
+                  <a href="{{ url_for('inpatient_detail', admission_id=a.id) }}">{{ a.patient.full_name }}</a>
+                {% else %}
+                  {{ a.patient.full_name }}
+                {% endif %}
+                </div>
+                <span class="status-pill status-inpatient">Admitted</span>
+                <div class="queue-meta">ID: {{ a.patient.national_id }} · {{ a.patient.phone or 'No phone' }}</div>
+                <div class="queue-meta">Admitted {{ a.admitted_at.strftime('%d %b %Y at %H:%M') }}</div>
+                {% if a.reason %}<div class="queue-meta">Reason: {{ a.reason }}</div>{% endif %}
+              </div>
+              <div class="queue-side">
+                <div class="queue-status-wrap mb-2">
+                  <span class="doctor-badge">{{ a.bed.ward.name }} · Bed {{ a.bed.label }}</span>
+                  <span class="doctor-badge">Admitting: {{ a.admitting_doctor or 'Unassigned' }}</span>
+                </div>
+                {% if session.get('role') in ['doctor', 'nurse', 'admin', 'records', 'receptionist', 'accounts'] %}
+                  <a href="{{ url_for('inpatient_detail', admission_id=a.id) }}" class="btn btn-sm btn-outline-primary">Open inpatient file</a>
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
       {% else %}
-      <p class="text-muted p-3 mb-0">No patients currently admitted.</p>
+        <div class="empty-state text-center py-5">
+          <h6 class="mb-2">No current inpatient admissions</h6>
+          <div class="text-muted">There are no patients occupying an inpatient bed right now.</div>
+        </div>
       {% endif %}
     </div>
   </div>

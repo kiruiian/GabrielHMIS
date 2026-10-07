@@ -38,3 +38,8 @@
 - Staff roles are enforced server-side.
 - Queue claims use the authenticated doctor's account.
 - Patient and clinical changes are written to an audit log.
+
+## Scheduling workflows
+
+- Reception, records, or admin staff can book and manage appointments. Clinical staff can view the schedule; checking a patient in adds them to the existing outpatient queue.
+- Reception or admin staff can schedule theatre procedures for outpatients or link them to an active inpatient admission. Doctors and nurses can save operative and recovery notes; doctors and admins can complete and lock the record. Completed records can be printed.

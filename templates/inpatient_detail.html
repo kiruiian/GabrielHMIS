@@ -33,16 +33,92 @@
             Full clinical card
           </a>
           {% if admission.status == 'admitted' %}
-          <form method="POST" action="{{ url_for('inpatient_discharge', admission_id=admission.id) }}"
-                onsubmit="return confirm('Discharge this patient and free the bed?');">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-success btn-sm w-100">Discharge</button>
-          </form>
+          <a class="btn btn-success btn-sm" href="#discharge">Edit discharge summary</a>
+          {% else %}
+          <a class="btn btn-outline-success btn-sm"
+             href="{{ url_for('inpatient_discharge_summary', admission_id=admission.id) }}">View discharge summary</a>
           {% endif %}
         </div>
       </div>
     </div>
   </div>
+
+  {% if admission.status == 'admitted' %}
+  <div class="card shadow-sm mb-4" id="discharge">
+    <div class="card-header"><strong>Clinical discharge summary</strong></div>
+    <div class="card-body">
+      <p class="text-muted">Save a draft at any time. Finalizing the summary closes the admission and releases the bed. Billing is handled separately.</p>
+      <form method="POST" action="{{ url_for('inpatient_discharge', admission_id=admission.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="admitted-at">Admission date and time <span class="text-danger">*</span></label>
+            <input id="admitted-at" type="datetime-local" name="admitted_at" class="form-control" required
+                   value="{{ admission.admitted_at.strftime('%Y-%m-%dT%H:%M') if admission.admitted_at else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="discharged-at">Discharge date and time <span class="text-danger">*</span></label>
+            <input id="discharged-at" type="datetime-local" name="discharged_at" class="form-control" required
+                   value="{{ default_discharge_time.strftime('%Y-%m-%dT%H:%M') }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="discharge-diagnosis">Final diagnosis <span class="text-danger">Required to finalize</span></label>
+            <input id="discharge-diagnosis" name="discharge_diagnosis" class="form-control" maxlength="255"
+                   value="{{ admission.discharge_diagnosis or '' }}" placeholder="Principal diagnosis at discharge">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="discharge-condition">Condition at discharge</label>
+            <select id="discharge-condition" name="discharge_condition" class="form-select">
+              <option value="">Select condition (required to finalize)</option>
+              {% for condition in ['Stable', 'Improved', 'Unchanged', 'Other'] %}
+              <option value="{{ condition }}" {% if admission.discharge_condition == condition %}selected{% endif %}>{{ condition }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="hospital-course">Hospital course <span class="text-danger">Required to finalize</span></label>
+            <textarea id="hospital-course" name="hospital_course" class="form-control" rows="4" maxlength="10000"
+                      placeholder="Summarize treatment, procedures, and response during admission">{{ admission.hospital_course or '' }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="discharge-medications">Discharge medications</label>
+            <textarea id="discharge-medications" name="discharge_medications" class="form-control" rows="3" maxlength="5000"
+                      placeholder="Medication, dose, route, and duration">{{ admission.discharge_medications or '' }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="follow-up-instructions">Follow-up and return instructions</label>
+            <textarea id="follow-up-instructions" name="follow_up_instructions" class="form-control" rows="3" maxlength="5000"
+                      placeholder="Follow-up date/location and when to return urgently">{{ admission.follow_up_instructions or '' }}</textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="discharge-notes">Additional discharge notes</label>
+            <input id="discharge-notes" name="discharge_notes" class="form-control" maxlength="255"
+                   value="{{ admission.discharge_notes or '' }}">
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button type="submit" name="action" value="save_draft" class="btn btn-outline-primary">Save draft</button>
+          <button type="submit" name="action" value="finalize" class="btn btn-success"
+                  onclick="return confirm('Finalize discharge, close the admission, and release the bed?');">Finalize discharge</button>
+          {% if admission.discharge_summary_saved_at %}
+          <a class="btn btn-outline-secondary"
+             href="{{ url_for('inpatient_discharge_summary', admission_id=admission.id) }}">View / print saved summary</a>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Discharge summary</strong></div>
+    <div class="card-body">
+      <p class="mb-1"><strong>Final diagnosis:</strong> {{ admission.discharge_diagnosis or 'Not recorded' }}</p>
+      <p class="mb-1"><strong>Condition at discharge:</strong> {{ admission.discharge_condition or '—' }}</p>
+      <a class="btn btn-outline-primary btn-sm mt-2"
+         href="{{ url_for('inpatient_discharge_summary', admission_id=admission.id) }}">Open printable summary</a>
+    </div>
+  </div>
+  {% endif %}
 
   {# ----- Diagnosis ----- #}
   <div class="card shadow-sm mb-4">

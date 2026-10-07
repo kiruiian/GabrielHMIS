@@ -3,7 +3,7 @@ import dotenv
 import secrets
 import math
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 
@@ -11,6 +11,7 @@ import click
 from dotenv import load_dotenv
 from flask import (
     Flask,
+    abort,
     render_template,
     request,
     redirect,
@@ -78,6 +79,11 @@ REGISTRATION_ROLES = {"receptionist", "records"}
 VISIT_MANAGEMENT_ROLES = {"receptionist", "records"}
 QUEUE_ASSIGNMENT_ROLES = {"receptionist", "records"}
 CLINICAL_READ_ROLES = {"doctor", "nurse", "triage", "records", "pharmacist"}
+APPOINTMENT_VIEW_ROLES = {"receptionist", "doctor", "nurse", "triage", "records"}
+APPOINTMENT_MANAGE_ROLES = {"receptionist", "records", "admin"}
+THEATRE_VIEW_ROLES = {"doctor", "nurse", "receptionist", "records", "admin"}
+THEATRE_MANAGE_ROLES = {"receptionist", "admin"}
+THEATRE_CLINICAL_ROLES = {"doctor", "nurse", "admin"}
 INVOICE_VIEW_ROLES = {"accounts", "admin", "receptionist", "records"}
 VITALS_ENTRY_ROLES = {"nurse", "triage"}
 NOTE_ENTRY_ROLES = {"doctor", "nurse"}
@@ -155,7 +161,21 @@ WARDS = [
     ('Post Anaesthesia Unit', 'Theatre', 'PACU', 2),
 ]
 
+BED_DAILY_RATES = {
+    "Male General": 3360,
+    "Female General": 3360,
+    "Private Ward": 3500,
+    "Pediatrics": 1500,
+    "Executive": 6000,
+    "General Private": 4000,
+    "Newborn Unit": 2500,
+    "Post Anaesthesia Unit": 2000,
+}
 
+ADMISSION_FEE = 1000  
+DEFAULT_DOCTOR_FEE = 2000
+DEFAULT_NURSING_FEE = 1000
+DEFAULT_CONSUMABLES = 500
 
 
 IMAGING_MODALITIES = {
@@ -343,6 +363,47 @@ class Visit(db.Model):
     completed_at = db.Column(db.DateTime, nullable=True)
 
     patient = db.relationship("Patient", backref=db.backref("visits", lazy=True))
+
+
+class Appointment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    scheduled_at = db.Column(db.DateTime, nullable=False)
+    doctor = db.Column(db.String(100))
+    reason = db.Column(db.String(255))
+    status = db.Column(db.String(20), nullable=False, default="scheduled")
+    created_by = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    checked_in_visit_id = db.Column(db.Integer, db.ForeignKey("visit.id"))
+
+    patient = db.relationship("Patient", backref=db.backref("appointments", lazy=True))
+    checked_in_visit = db.relationship("Visit")
+
+
+class TheatreProcedure(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    admission_id = db.Column(db.Integer, db.ForeignKey("admission.id"))
+    scheduled_at = db.Column(db.DateTime, nullable=False)
+    procedure_name = db.Column(db.String(255), nullable=False)
+    surgeon = db.Column(db.String(100))
+    anesthetist = db.Column(db.String(100))
+    status = db.Column(db.String(20), nullable=False, default="scheduled")
+    preoperative_diagnosis = db.Column(db.Text)
+    anesthesia_type = db.Column(db.String(100))
+    procedure_performed = db.Column(db.Text)
+    findings = db.Column(db.Text)
+    anesthesia_notes = db.Column(db.Text)
+    complications = db.Column(db.Text)
+    estimated_blood_loss = db.Column(db.String(80))
+    recovery_notes = db.Column(db.Text)
+    postoperative_plan = db.Column(db.Text)
+    created_by = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
+
+    patient = db.relationship("Patient", backref=db.backref("theatre_procedures", lazy=True))
+    admission = db.relationship("Admission", backref=db.backref("theatre_procedures", lazy=True))
 
 
 class InvoicePayment(db.Model):
@@ -592,6 +653,22 @@ class Admission(db.Model):
     discharged_at = db.Column(db.DateTime)
     discharged_by = db.Column(db.String(100))
     discharge_notes = db.Column(db.String(255))
+    discharge_diagnosis = db.Column(db.String(255))
+    hospital_course = db.Column(db.Text)
+    discharge_condition = db.Column(db.String(80))
+    discharge_medications = db.Column(db.Text)
+    follow_up_instructions = db.Column(db.Text)
+    discharge_summary_saved_at = db.Column(db.DateTime)
+    discharge_summary_saved_by = db.Column(db.String(100))
+    discharge_summary_discharge_at = db.Column(db.DateTime)
+    visit_id = db.Column(db.Integer, db.ForeignKey("visit.id"), nullable=True)
+    admission_fee = db.Column(db.Numeric(10, 2))
+    bed_daily_rate = db.Column(db.Numeric(10, 2))
+    bed_days = db.Column(db.Integer)
+    bed_charges = db.Column(db.Numeric(10, 2))
+    doctor_fee = db.Column(db.Numeric(10, 2))
+    nursing_fee = db.Column(db.Numeric(10, 2))
+    consumables_fee = db.Column(db.Numeric(10, 2))
 
     patient = db.relationship("Patient", backref=db.backref("admissions", lazy=True))
     bed = db.relationship("Bed", backref=db.backref("admissions", lazy=True))
@@ -600,7 +677,7 @@ class WardNote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     admission_id = db.Column(db.Integer, db.ForeignKey("admission.id"), nullable=False) 
     patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
-    ote = db.Column(db.Text, nullable=False)
+    note = db.Column(db.Text, nullable=False)
     note_type = db.Column(db.String(40), default="nursing")  # nursing | doctor | progress
     recorded_by = db.Column(db.String(100))
     recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -812,7 +889,23 @@ def ensure_schema():
             db.session.execute(
                 text("ALTER TABLE imaging_study ADD COLUMN reviewed_at DATETIME")
             )
-    db.session.commit()
+        admission_columns = {
+            row[1] for row in db.session.execute(text("PRAGMA table_info(admission)"))
+        }
+        admission_migrations = {
+            "discharge_diagnosis": "ALTER TABLE admission ADD COLUMN discharge_diagnosis VARCHAR(255)",
+            "hospital_course": "ALTER TABLE admission ADD COLUMN hospital_course TEXT",
+            "discharge_condition": "ALTER TABLE admission ADD COLUMN discharge_condition VARCHAR(80)",
+            "discharge_medications": "ALTER TABLE admission ADD COLUMN discharge_medications TEXT",
+            "follow_up_instructions": "ALTER TABLE admission ADD COLUMN follow_up_instructions TEXT",
+            "discharge_summary_saved_at": "ALTER TABLE admission ADD COLUMN discharge_summary_saved_at DATETIME",
+            "discharge_summary_saved_by": "ALTER TABLE admission ADD COLUMN discharge_summary_saved_by VARCHAR(100)",
+            "discharge_summary_discharge_at": "ALTER TABLE admission ADD COLUMN discharge_summary_discharge_at DATETIME",
+        }
+        for column, migration in admission_migrations.items():
+            if column not in admission_columns:
+                db.session.execute(text(migration))
+        db.session.commit()
 
 
 with app.app_context():
@@ -1722,6 +1815,415 @@ def outpatient_queue():
         "outpatient_queue.html",
         queue_entries=decorated,
     )
+
+
+def parse_local_datetime(raw_value):
+    try:
+        local_value = datetime.strptime(
+            (raw_value or "").strip(), "%Y-%m-%dT%H:%M"
+        ).astimezone()
+        return local_value.astimezone(timezone.utc).replace(tzinfo=None)
+    except ValueError as error:
+        raise ValueError("Enter a valid date and time.") from error
+
+
+def local_day_utc_bounds(day):
+    start_local = datetime.combine(day, datetime.min.time()).astimezone()
+    end_local = datetime.combine(day + timedelta(days=1), datetime.min.time()).astimezone()
+    return (
+        start_local.astimezone(timezone.utc).replace(tzinfo=None),
+        end_local.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+
+def local_date_string(value):
+    return value.replace(tzinfo=timezone.utc).astimezone().date().isoformat()
+
+
+@app.template_filter("local_datetime")
+def local_datetime(value, date_format="%d %b %Y %H:%M"):
+    if not value:
+        return ""
+    return value.replace(tzinfo=timezone.utc).astimezone().strftime(date_format)
+
+
+@app.route("/appointments")
+@login_required(roles=APPOINTMENT_VIEW_ROLES | APPOINTMENT_MANAGE_ROLES)
+def appointments():
+    selected_date = request.args.get("date", datetime.now().astimezone().date().isoformat())
+    try:
+        day = datetime.strptime(selected_date, "%Y-%m-%d").date()
+    except ValueError:
+        flash("Select a valid appointment date.", "danger")
+        day = datetime.now().astimezone().date()
+        selected_date = day.isoformat()
+    start_utc, end_utc = local_day_utc_bounds(day)
+
+    appointments_for_day = (
+        Appointment.query.filter(
+            Appointment.scheduled_at >= start_utc,
+            Appointment.scheduled_at < end_utc,
+        )
+        .order_by(Appointment.scheduled_at.asc())
+        .all()
+    )
+    doctors = User.query.filter_by(role="doctor").order_by(User.full_name).all()
+    return render_template(
+        "appointments.html",
+        appointments=appointments_for_day,
+        selected_date=selected_date,
+        doctors=doctors,
+        payment_methods=sorted(PAYMENT_METHODS),
+        can_manage=session.get("role") in APPOINTMENT_MANAGE_ROLES
+        or session.get("role") == "admin",
+    )
+
+
+@app.route("/appointments/create", methods=["POST"])
+@login_required(roles=APPOINTMENT_MANAGE_ROLES)
+def appointment_create():
+    patient = Patient.query.filter_by(
+        national_id=request.form.get("national_id", "").strip()
+    ).first()
+    if not patient:
+        flash("Patient not found. Register the patient first.", "danger")
+        return redirect(url_for("appointments"))
+
+    try:
+        scheduled_at = parse_local_datetime(request.form.get("scheduled_at"))
+    except ValueError as error:
+        flash(str(error), "danger")
+        return redirect(url_for("appointments"))
+    if scheduled_at < datetime.utcnow():
+        flash("Appointments must be scheduled in the future.", "danger")
+        return redirect(url_for("appointments", date=local_date_string(scheduled_at)))
+
+    doctor = request.form.get("doctor", "").strip() or None
+    valid_doctors = {member.full_name for member in User.query.filter_by(role="doctor")}
+    if doctor and doctor not in valid_doctors:
+        flash("Select a registered doctor.", "danger")
+        return redirect(url_for("appointments", date=local_date_string(scheduled_at)))
+    if doctor and Appointment.query.filter_by(
+        doctor=doctor, scheduled_at=scheduled_at, status="scheduled"
+    ).first():
+        flash("That doctor already has an appointment at this time.", "warning")
+        return redirect(url_for("appointments", date=local_date_string(scheduled_at)))
+
+    appointment = Appointment(
+        patient_id=patient.id,
+        scheduled_at=scheduled_at,
+        doctor=doctor,
+        reason=request.form.get("reason", "").strip()[:255] or None,
+        created_by=session.get("full_name", session.get("username", "Staff")),
+    )
+    db.session.add(appointment)
+    db.session.flush()
+    audit(
+        "appointment_scheduled",
+        "appointment",
+        appointment.id,
+        f"patient_id={patient.id}; doctor={doctor or 'unassigned'}; "
+        f"scheduled_at={scheduled_at.isoformat()}",
+    )
+    db.session.commit()
+    flash(f"Appointment booked for {patient.full_name}.", "success")
+    return redirect(url_for("appointments", date=local_date_string(scheduled_at)))
+
+
+@app.route("/appointments/<int:appointment_id>/manage", methods=["POST"])
+@login_required(roles=APPOINTMENT_MANAGE_ROLES)
+def appointment_manage(appointment_id):
+    appointment = Appointment.query.get_or_404(appointment_id)
+    action = request.form.get("action", "")
+    if appointment.status != "scheduled":
+        flash("Only scheduled appointments can be changed.", "warning")
+        return redirect(url_for("appointments", date=local_date_string(appointment.scheduled_at)))
+
+    if action == "check_in":
+        payment_method = request.form.get("payment_method", "").strip()
+        if payment_method not in PAYMENT_METHODS:
+            flash("Choose a valid payer before checking in.", "danger")
+            return redirect(url_for("appointments", date=local_date_string(appointment.scheduled_at)))
+        active_queue = QueueEntry.query.filter(
+            QueueEntry.patient_id == appointment.patient_id,
+            QueueEntry.status.in_(ACTIVE_QUEUE_STATUSES),
+        ).first()
+        if active_queue:
+            flash("This patient already has an active outpatient queue entry.", "warning")
+            return redirect(url_for("appointments", date=local_date_string(appointment.scheduled_at)))
+
+        visit_type = determine_visit_type(appointment.patient)
+        visit = Visit(
+            patient_id=appointment.patient_id,
+            visit_type=visit_type,
+            payment_method=payment_method,
+        )
+        appointment.patient.visit_type = "Revisit" if visit_type == "Revisit" else "New Visit"
+        db.session.add(visit)
+        db.session.flush()
+        visit.invoice_number = f"INV-{visit.id:06d}"
+        queue = QueueEntry(
+            visit_id=visit.id,
+            patient_id=appointment.patient_id,
+            doctor=appointment.doctor,
+            status="queued",
+        )
+        db.session.add(queue)
+        db.session.flush()
+        appointment.checked_in_visit_id = visit.id
+        appointment.status = "checked_in"
+        audit(
+            "appointment_checked_in",
+            "appointment",
+            appointment.id,
+            f"visit_id={visit.id}; queue_id={queue.id}; payment_method={payment_method}",
+        )
+        db.session.commit()
+        flash("Patient checked in and added to the outpatient queue.", "success")
+        return redirect(url_for("outpatient_queue"))
+
+    if action in {"cancel", "no_show"}:
+        appointment.status = "cancelled" if action == "cancel" else "no_show"
+        audit(
+            f"appointment_{appointment.status}",
+            "appointment",
+            appointment.id,
+            f"patient_id={appointment.patient_id}",
+        )
+        db.session.commit()
+        flash(f"Appointment marked {appointment.status.replace('_', ' ')}.", "success")
+        return redirect(url_for("appointments", date=local_date_string(appointment.scheduled_at)))
+
+    if action == "reschedule":
+        try:
+            scheduled_at = parse_local_datetime(request.form.get("scheduled_at"))
+        except ValueError as error:
+            flash(str(error), "danger")
+            return redirect(url_for("appointments", date=local_date_string(appointment.scheduled_at)))
+        if scheduled_at < datetime.utcnow():
+            flash("Appointments must be rescheduled to a future date and time.", "danger")
+            return redirect(url_for("appointments", date=local_date_string(appointment.scheduled_at)))
+        doctor = request.form.get("doctor", "").strip() or None
+        valid_doctors = {member.full_name for member in User.query.filter_by(role="doctor")}
+        if doctor and doctor not in valid_doctors:
+            flash("Select a registered doctor.", "danger")
+            return redirect(url_for("appointments", date=local_date_string(appointment.scheduled_at)))
+        conflict = Appointment.query.filter(
+            Appointment.id != appointment.id,
+            Appointment.doctor == doctor,
+            Appointment.scheduled_at == scheduled_at,
+            Appointment.status == "scheduled",
+        ).first() if doctor else None
+        if conflict:
+            flash("That doctor already has an appointment at this time.", "warning")
+            return redirect(url_for("appointments", date=local_date_string(appointment.scheduled_at)))
+        appointment.scheduled_at = scheduled_at
+        appointment.doctor = doctor
+        appointment.reason = request.form.get("reason", "").strip()[:255] or None
+        audit(
+            "appointment_rescheduled",
+            "appointment",
+            appointment.id,
+            f"scheduled_at={scheduled_at.isoformat()}; doctor={doctor or 'unassigned'}",
+        )
+        db.session.commit()
+        flash("Appointment rescheduled.", "success")
+        return redirect(url_for("appointments", date=local_date_string(scheduled_at)))
+
+    flash("Select a valid appointment action.", "danger")
+    return redirect(url_for("appointments", date=local_date_string(appointment.scheduled_at)))
+
+
+@app.route("/theatre")
+@login_required(roles=THEATRE_VIEW_ROLES)
+def theatre_list():
+    selected_date = request.args.get("date", datetime.now().astimezone().date().isoformat())
+    try:
+        day = datetime.strptime(selected_date, "%Y-%m-%d").date()
+    except ValueError:
+        flash("Select a valid theatre date.", "danger")
+        day = datetime.now().astimezone().date()
+        selected_date = day.isoformat()
+    start_utc, end_utc = local_day_utc_bounds(day)
+
+    procedures = (
+        TheatreProcedure.query.filter(
+            TheatreProcedure.scheduled_at >= start_utc,
+            TheatreProcedure.scheduled_at < end_utc,
+            TheatreProcedure.status != "cancelled",
+        )
+        .order_by(TheatreProcedure.scheduled_at.asc())
+        .all()
+    )
+    doctors = User.query.filter_by(role="doctor").order_by(User.full_name).all()
+    return render_template(
+        "theatre.html",
+        procedures=procedures,
+        selected_date=selected_date,
+        doctors=doctors,
+        can_manage=session.get("role") in THEATRE_MANAGE_ROLES
+        or session.get("role") == "admin",
+    )
+
+
+@app.route("/theatre/create", methods=["POST"])
+@login_required(roles=THEATRE_MANAGE_ROLES)
+def theatre_create():
+    patient = Patient.query.filter_by(
+        national_id=request.form.get("national_id", "").strip()
+    ).first()
+    if not patient:
+        flash("Patient not found. Register the patient first.", "danger")
+        return redirect(url_for("theatre_list"))
+
+    procedure_name = request.form.get("procedure_name", "").strip()
+    if not procedure_name:
+        flash("Enter the planned procedure.", "danger")
+        return redirect(url_for("theatre_list"))
+    try:
+        scheduled_at = parse_local_datetime(request.form.get("scheduled_at"))
+    except ValueError as error:
+        flash(str(error), "danger")
+        return redirect(url_for("theatre_list"))
+    if scheduled_at < datetime.utcnow():
+        flash("Theatre procedures must be scheduled in the future.", "danger")
+        return redirect(url_for("theatre_list", date=local_date_string(scheduled_at)))
+
+    surgeon = request.form.get("surgeon", "").strip() or None
+    valid_doctors = {member.full_name for member in User.query.filter_by(role="doctor")}
+    if surgeon and surgeon not in valid_doctors:
+        flash("Select a registered surgeon.", "danger")
+        return redirect(url_for("theatre_list", date=local_date_string(scheduled_at)))
+    conflict = TheatreProcedure.query.filter(
+        TheatreProcedure.surgeon == surgeon,
+        TheatreProcedure.scheduled_at == scheduled_at,
+        TheatreProcedure.status.in_(["scheduled", "in_progress"]),
+    ).first() if surgeon else None
+    if conflict:
+        flash("That surgeon already has a procedure scheduled at this time.", "warning")
+        return redirect(url_for("theatre_list", date=local_date_string(scheduled_at)))
+
+    admission_id = request.form.get("admission_id", type=int)
+    admission = Admission.query.filter_by(
+        id=admission_id, patient_id=patient.id, status="admitted"
+    ).first() if admission_id else None
+    if admission_id and not admission:
+        flash("Select an active admission belonging to this patient.", "danger")
+        return redirect(url_for("theatre_list", date=local_date_string(scheduled_at)))
+
+    procedure = TheatreProcedure(
+        patient_id=patient.id,
+        admission_id=admission.id if admission else None,
+        scheduled_at=scheduled_at,
+        procedure_name=procedure_name[:255],
+        surgeon=surgeon,
+        anesthetist=request.form.get("anesthetist", "").strip()[:100] or None,
+        created_by=session.get("full_name", session.get("username", "Staff")),
+    )
+    db.session.add(procedure)
+    db.session.flush()
+    audit(
+        "theatre_procedure_scheduled",
+        "theatre_procedure",
+        procedure.id,
+        f"patient_id={patient.id}; admission_id={procedure.admission_id}; "
+        f"surgeon={surgeon or 'unassigned'}; scheduled_at={scheduled_at.isoformat()}",
+    )
+    db.session.commit()
+    flash("Theatre procedure scheduled.", "success")
+    return redirect(url_for("theatre_list", date=local_date_string(scheduled_at)))
+
+
+@app.route("/theatre/<int:procedure_id>", methods=["GET", "POST"])
+@login_required(roles=THEATRE_VIEW_ROLES)
+def theatre_procedure(procedure_id):
+    procedure = TheatreProcedure.query.get_or_404(procedure_id)
+    can_record = session.get("role") in THEATRE_CLINICAL_ROLES
+    if request.method == "POST":
+        if not can_record:
+            abort(403)
+        if procedure.status in {"completed", "cancelled"}:
+            flash("This procedure is closed and its record cannot be changed.", "warning")
+            return redirect(url_for("theatre_procedure", procedure_id=procedure.id))
+
+        procedure.preoperative_diagnosis = (
+            request.form.get("preoperative_diagnosis", "").strip()[:5000] or None
+        )
+        procedure.anesthesia_type = (
+            request.form.get("anesthesia_type", "").strip()[:100] or None
+        )
+        procedure.procedure_performed = (
+            request.form.get("procedure_performed", "").strip()[:10000] or None
+        )
+        procedure.findings = request.form.get("findings", "").strip()[:10000] or None
+        procedure.anesthesia_notes = (
+            request.form.get("anesthesia_notes", "").strip()[:10000] or None
+        )
+        procedure.complications = (
+            request.form.get("complications", "").strip()[:5000] or None
+        )
+        procedure.estimated_blood_loss = (
+            request.form.get("estimated_blood_loss", "").strip()[:80] or None
+        )
+        procedure.recovery_notes = (
+            request.form.get("recovery_notes", "").strip()[:10000] or None
+        )
+        procedure.postoperative_plan = (
+            request.form.get("postoperative_plan", "").strip()[:10000] or None
+        )
+        action = request.form.get("action", "save")
+        if action not in {"save", "start", "complete"}:
+            flash("Select a valid theatre record action.", "danger")
+            return redirect(url_for("theatre_procedure", procedure_id=procedure.id))
+        if action == "complete":
+            if not procedure.preoperative_diagnosis or not procedure.procedure_performed or not procedure.findings:
+                flash(
+                    "Record the pre-operative diagnosis, procedure performed, and findings before completing.",
+                    "danger",
+                )
+                return redirect(url_for("theatre_procedure", procedure_id=procedure.id))
+            if session.get("role") not in {"doctor", "admin"}:
+                abort(403)
+            procedure.status = "completed"
+            procedure.completed_at = datetime.utcnow()
+        elif action == "start":
+            procedure.status = "in_progress"
+
+        audit(
+            "theatre_record_updated",
+            "theatre_procedure",
+            procedure.id,
+            f"action={action}; status={procedure.status}",
+        )
+        db.session.commit()
+        flash(
+            "Operative and recovery record completed."
+            if action == "complete"
+            else "Theatre record saved.",
+            "success",
+        )
+        return redirect(url_for("theatre_procedure", procedure_id=procedure.id))
+
+    return render_template(
+        "theatre_procedure.html",
+        procedure=procedure,
+        can_record=can_record,
+        can_complete=session.get("role") in {"doctor", "admin"},
+    )
+
+
+@app.route("/theatre/<int:procedure_id>/cancel", methods=["POST"])
+@login_required(roles=THEATRE_MANAGE_ROLES)
+def theatre_cancel(procedure_id):
+    procedure = TheatreProcedure.query.get_or_404(procedure_id)
+    if procedure.status != "scheduled":
+        flash("Only scheduled procedures can be cancelled.", "warning")
+    else:
+        procedure.status = "cancelled"
+        audit("theatre_procedure_cancelled", "theatre_procedure", procedure.id)
+        db.session.commit()
+        flash("Theatre procedure cancelled.", "success")
+    return redirect(url_for("theatre_list", date=local_date_string(procedure.scheduled_at)))
 @app.route("/patient/<national_id>/send-to-doctor", methods=["POST"])
 @login_required(roles={"nurse", "triage"})
 def send_to_doctor(national_id):
@@ -1767,7 +2269,7 @@ def patients():
         page = max(1, int(request.args.get("page", 1)))
     except ValueError:
         page = 1
-    per_page = 20
+    per_page = 10
 
     query = Patient.query
     if national_id:
@@ -2023,9 +2525,37 @@ def invoice_detail(visit_id):
         if visit.consultation_amount is not None
         else None
     )
+    inpatient_admissions = (
+        Admission.query.filter(
+            Admission.visit_id == visit.id,
+            Admission.bed_charges.isnot(None),
+        ).all()
+    )
+    if not inpatient_admissions:
+        inpatient_admissions = (
+            Admission.query.filter(
+                Admission.patient_id == visit.patient_id,
+                Admission.status == "discharged",
+                Admission.bed_charges.isnot(None),
+                Admission.visit_id == visit.id,
+            ).all()
+        )
+
+    inpatient_total = sum(
+        float(a.admission_fee or 0)
+        + float(a.bed_charges or 0)
+        + float(a.doctor_fee or 0)
+        + float(a.nursing_fee or 0)
+        + float(a.consumables_fee or 0)
+        for a in inpatient_admissions
+    )
 
     invoice_total = (
-        consultation_total + lab_subtotal + pharmacy_total + radiology_total
+        consultation_total
+        + lab_subtotal
+        + pharmacy_total
+        + radiology_total
+        + inpatient_total
         if consultation_total is not None and not has_pending_pharmacy_charge
         else None
     )
@@ -2063,6 +2593,8 @@ def invoice_detail(visit_id):
         paid_total=paid_total,
         balance=balance,
         payment_status=payment_status,
+        inpatient_admissions=inpatient_admissions,
+        inpatient_total=inpatient_total,
     )
 
 
@@ -2276,15 +2808,19 @@ def queue_claim(queue_id):
 @login_required()
 def dashboard_stats():
     today = datetime.utcnow().date()
-    total_patients = Patient.query.count()
     today_patients = Patient.query.filter(
         db.func.date(Patient.registration_date) == today
     ).count()
     today_visits = Visit.query.filter(db.func.date(Visit.started_at) == today).count()
-    revisit_visits = Visit.query.filter(Visit.visit_type == "Revisit").count()
-    new_visits = Visit.query.filter(Visit.visit_type == "New Visit").count()
+    revisit_visits = Visit.query.filter(
+        db.func.date(Visit.started_at) == today,
+        Visit.visit_type == "Revisit",
+    ).count()
+    new_visits = Visit.query.filter(
+        db.func.date(Visit.started_at) == today,
+        Visit.visit_type == "New Visit",
+    ).count()
     return {
-        "total_patients": total_patients,
         "today_patients": today_patients,
         "today_visits": today_visits,
         "revisit_visits": revisit_visits,
@@ -2729,7 +3265,7 @@ def radiology_study(study_id):
     return render_template("radiology_study.html", study=study, patient=patient)
 
 @app.route("/inpatient")
-@login_required(roles=INPATIENT_ROLES | {"admin"})
+@login_required()
 def inpatient_list():
     admissions = (
         Admission.query.filter_by(status="admitted")
@@ -2822,7 +3358,17 @@ def inpatient_detail(admission_id):
         diagnoses=diagnoses,
         previous_admissions=previous_admissions,
         visits=visits,
+        default_discharge_time=adm.discharge_summary_discharge_at or datetime.utcnow(),
     )
+
+
+@app.route("/inpatient/<int:admission_id>/discharge-summary")
+@login_required(roles=INPATIENT_ROLES | {"admin"})
+def inpatient_discharge_summary(admission_id):
+    adm = Admission.query.get_or_404(admission_id)
+    if adm.status != "discharged" and not adm.discharge_summary_saved_at:
+        abort(404)
+    return render_template("inpatient_discharge_summary.html", admission=adm)
 
 
 @app.route("/inpatient/<int:admission_id>/note", methods=["POST"])
@@ -2909,6 +3455,38 @@ def inpatient_admit():
         "success",
     )
     return redirect(url_for("inpatient_list"))
+
+
+def _money(name, default=0):
+    raw = request.form.get(name, "").strip()
+    if raw == "":
+        return float(default)
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        return float(default)
+
+
+def finalize_admission_billing(adm):
+    """Set admission fee + bed charges when discharging."""
+    if adm.bed_charges is not None and adm.admission_fee is not None:
+        return
+
+    ward_name = adm.bed.ward.name if adm.bed and adm.bed.ward else ""
+    rate = float(BED_DAILY_RATES.get(ward_name, 1500))
+    fee = float(ADMISSION_FEE)
+
+    end = adm.discharged_at or datetime.utcnow()
+    start = adm.admitted_at or end
+    nights = (end.date() - start.date()).days
+    days = max(1, nights)
+
+    adm.bed_daily_rate = rate
+    adm.bed_days = days
+    adm.bed_charges = round(rate * days, 2)
+    adm.admission_fee = fee
+
+
 @app.route("/inpatient/<int:admission_id>/discharge", methods=["POST"])
 @login_required(roles=INPATIENT_ROLES | {"admin"})
 def inpatient_discharge(admission_id):
@@ -2917,23 +3495,190 @@ def inpatient_discharge(admission_id):
         flash("This admission is already closed.", "warning")
         return redirect(url_for("inpatient_list"))
 
+    discharge_diagnosis = request.form.get("discharge_diagnosis", "").strip()
+    hospital_course = request.form.get("hospital_course", "").strip()
+    discharge_condition = request.form.get("discharge_condition", "").strip()
+    action = request.form.get("action", "finalize")
+    if action not in {"save_draft", "finalize"}:
+        flash("Choose whether to save a draft or finalize the discharge.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+    if action == "finalize" and (not discharge_diagnosis or not hospital_course):
+        flash("Enter the final diagnosis and hospital course before discharge.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+    if discharge_condition and discharge_condition not in {
+        "Stable",
+        "Improved",
+        "Unchanged",
+        "Other",
+    }:
+        flash("Select a valid condition at discharge.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+    if action == "finalize" and not discharge_condition:
+        flash("Select the patient's condition at discharge.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+
+    try:
+        admitted_at = datetime.strptime(
+            request.form.get("admitted_at", "").strip(), "%Y-%m-%dT%H:%M"
+        )
+        discharge_summary_discharge_at = datetime.strptime(
+            request.form.get("discharged_at", "").strip(), "%Y-%m-%dT%H:%M"
+        )
+    except ValueError:
+        flash("Enter valid admission and discharge dates.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+    if discharge_summary_discharge_at < admitted_at:
+        flash("The discharge date cannot be before the admission date.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+
+    if action == "finalize" and discharge_summary_discharge_at > datetime.utcnow():
+        flash("The discharge date cannot be in the future.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+
     notes = request.form.get("discharge_notes", "").strip()[:255] or None
-    adm.status = "discharged"
-    adm.discharged_at = datetime.utcnow()
-    adm.discharged_by = session.get("full_name", session.get("username", "Staff"))
+    adm.admitted_at = admitted_at
+    adm.discharge_summary_discharge_at = discharge_summary_discharge_at
+    adm.discharge_diagnosis = discharge_diagnosis[:255]
+    adm.hospital_course = hospital_course[:10000]
+    adm.discharge_condition = discharge_condition
+    adm.discharge_medications = (
+        request.form.get("discharge_medications", "").strip()[:5000] or None
+    )
+    adm.follow_up_instructions = (
+        request.form.get("follow_up_instructions", "").strip()[:5000] or None
+    )
     adm.discharge_notes = notes
+    adm.discharge_summary_saved_at = datetime.utcnow()
+    adm.discharge_summary_saved_by = session.get(
+        "full_name", session.get("username", "Staff")
+    )
+
+    if action == "save_draft":
+        audit(
+            "discharge_summary_saved",
+            "admission",
+            adm.id,
+            f"patient_id={adm.patient_id}; status=draft; "
+            f"admitted_at={adm.admitted_at.isoformat()}; "
+            f"planned_discharge_at={adm.discharge_summary_discharge_at.isoformat()}",
+        )
+        db.session.commit()
+        flash("Discharge summary draft saved. The admission remains open.", "success")
+        return redirect(url_for("inpatient_discharge_summary", admission_id=adm.id))
+
+    adm.status = "discharged"
+    adm.discharged_at = discharge_summary_discharge_at
+    adm.discharged_by = session.get("full_name", session.get("username", "Staff"))
     if adm.bed:
         adm.bed.status = "available"
 
+    finalize_admission_billing(adm)
+    adm.doctor_fee = DEFAULT_DOCTOR_FEE
+    adm.nursing_fee = DEFAULT_NURSING_FEE
+    adm.consumables_fee = DEFAULT_CONSUMABLES
+
+    visit = Visit.query.get(adm.visit_id) if adm.visit_id else None
+    if not visit:
+        visit = Visit(
+            patient_id=adm.patient_id,
+            visit_type="Inpatient",
+            status="completed",
+            started_at=adm.admitted_at,
+            completed_at=adm.discharged_at,
+        )
+        db.session.add(visit)
+        db.session.flush()
+        adm.visit_id = visit.id
+
+    if not visit.invoice_number:
+        visit.invoice_number = f"INV-{visit.id:06d}"
+    visit.status = "completed"
+    if hasattr(visit, "completed_at"):
+        visit.completed_at = adm.discharged_at
+
+    audit(
+        "admission_billed",
+        "admission",
+        adm.id,
+        f"days={adm.bed_days}; bed={adm.bed_charges}; fee={adm.admission_fee}; "
+        f"doctor={adm.doctor_fee}; nursing={adm.nursing_fee}; consumables={adm.consumables_fee}; "
+        f"visit_id={visit.id}",
+    )
     audit(
         "patient_discharged",
         "admission",
         adm.id,
-        f"patient_id={adm.patient_id}; bed_id={adm.bed_id}",
+        f"patient_id={adm.patient_id}; bed_id={adm.bed_id}; "
+        f"discharged_at={adm.discharged_at.isoformat()}; "
+        f"diagnosis_recorded={bool(adm.discharge_diagnosis)}",
     )
     db.session.commit()
-    flash("Patient discharged and bed freed.", "success")
-    return redirect(url_for("inpatient_list"))
+    flash("Patient discharged and bed released.", "success")
+    return redirect(url_for("inpatient_discharge_summary", admission_id=adm.id))
+
+INPATIENT_BILLING_ROLES = {"accounts", "receptionist", "records", "admin"}
+
+
+@app.route("/invoices/<int:visit_id>/inpatient-charges", methods=["POST"])
+@login_required(roles=INPATIENT_BILLING_ROLES | {"admin"})
+def update_inpatient_charges(visit_id):
+    visit = Visit.query.filter(
+        Visit.id == visit_id,
+        Visit.invoice_number.isnot(None),
+        Visit.invoice_number != "",
+    ).first_or_404()
+
+    adm = (
+        Admission.query.filter(
+            Admission.visit_id == visit.id,
+        )
+        .order_by(Admission.id.desc())
+        .first()
+    )
+    if not adm:
+        flash("No inpatient admission linked to this invoice.", "warning")
+        return redirect(url_for("invoice_detail", visit_id=visit.id))
+
+    def _money(name, current=0):
+        raw = request.form.get(name, "").strip()
+        if raw == "":
+            return float(current or 0)
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            return float(current or 0)
+
+    def _int(name, current=1):
+        raw = request.form.get(name, "").strip()
+        if raw == "":
+            return int(current or 1)
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            return int(current or 1)
+
+    days = _int("bed_days", adm.bed_days or 1)
+    rate = _money("bed_daily_rate", adm.bed_daily_rate or 1500)
+
+    adm.bed_days = days
+    adm.bed_daily_rate = rate
+    adm.bed_charges = round(days * rate, 2)
+    adm.admission_fee = _money("admission_fee", adm.admission_fee or ADMISSION_FEE)
+    adm.doctor_fee = _money("doctor_fee", adm.doctor_fee or DEFAULT_DOCTOR_FEE)
+    adm.nursing_fee = _money("nursing_fee", adm.nursing_fee or DEFAULT_NURSING_FEE)
+    adm.consumables_fee = _money(
+        "consumables_fee", adm.consumables_fee or DEFAULT_CONSUMABLES
+    )
+
+    audit(
+        "inpatient_charges_updated",
+        "admission",
+        adm.id,
+        f"visit_id={visit.id}; days={days}; rate={rate}; bed={adm.bed_charges}",
+    )
+    db.session.commit()
+    flash("Inpatient charges updated on invoice.", "success")
+    return redirect(url_for("invoice_detail", visit_id=visit.id))
 
 @app.route("/imaging/file/<path:filename>")
 @login_required(roles=IMAGING_VIEW_ROLES)

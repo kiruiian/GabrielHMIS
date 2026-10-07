@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+
+{% block title %}Operative Record | St Gabriel Hospital{% endblock %}
+
+{% block content %}
+  <div class="page-hero page-hero-teal mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Theatre procedure</div>
+        <h3 class="mb-1 dashboard-title">{{ procedure.procedure_name }}</h3>
+        <p class="mb-0 hero-text">{{ procedure.patient.full_name }} · ID {{ procedure.patient.national_id }}</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 hero-actions d-print-none">
+        <a class="btn btn-light btn-sm" href="{{ url_for('theatre_list', date=procedure.scheduled_at|local_datetime('%Y-%m-%d')) }}">Back to Theatre</a>
+        <button class="btn btn-primary btn-sm" type="button" onclick="window.print()">Print record</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-3"><span class="text-muted small d-block">Scheduled</span>{{ procedure.scheduled_at|local_datetime('%d %b %Y %H:%M') }}</div>
+        <div class="col-md-3"><span class="text-muted small d-block">Status</span><span class="status-pill status-{{ procedure.status|replace('_', '-') }}">{{ procedure.status|replace('_', ' ')|title }}</span></div>
+        <div class="col-md-3"><span class="text-muted small d-block">Surgeon</span>{{ procedure.surgeon or 'Unassigned' }}</div>
+        <div class="col-md-3"><span class="text-muted small d-block">Anesthetist</span>{{ procedure.anesthetist or 'Unassigned' }}</div>
+        {% if procedure.admission %}
+        <div class="col-12"><span class="text-muted small d-block">Admission</span>{{ procedure.admission.bed.ward.name }} · Bed {{ procedure.admission.bed.label }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if can_record and procedure.status not in ['completed', 'cancelled'] %}
+  <div class="card shadow-sm mb-4 d-print-none">
+    <div class="card-header"><strong>Operative and recovery record</strong></div>
+    <div class="card-body">
+      <form method="post" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-6">
+          <label class="form-label" for="preoperative-diagnosis">Pre-operative diagnosis</label>
+          <textarea class="form-control" id="preoperative-diagnosis" name="preoperative_diagnosis" rows="2">{{ procedure.preoperative_diagnosis or '' }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="anesthesia-type">Anesthesia type</label>
+          <input class="form-control" id="anesthesia-type" name="anesthesia_type" value="{{ procedure.anesthesia_type or '' }}" maxlength="100" placeholder="e.g. General, spinal, local">
+        </div>
+        <div class="col-12">
+          <label class="form-label" for="procedure-performed">Procedure performed</label>
+          <textarea class="form-control" id="procedure-performed" name="procedure_performed" rows="3">{{ procedure.procedure_performed or '' }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="findings">Operative findings</label>
+          <textarea class="form-control" id="findings" name="findings" rows="3">{{ procedure.findings or '' }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="anesthesia-notes">Anesthesia notes</label>
+          <textarea class="form-control" id="anesthesia-notes" name="anesthesia_notes" rows="3">{{ procedure.anesthesia_notes or '' }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="complications">Complications</label>
+          <textarea class="form-control" id="complications" name="complications" rows="2">{{ procedure.complications or '' }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="blood-loss">Estimated blood loss</label>
+          <input class="form-control" id="blood-loss" name="estimated_blood_loss" maxlength="80" value="{{ procedure.estimated_blood_loss or '' }}" placeholder="e.g. 100 mL">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="recovery-notes">Recovery / PACU notes</label>
+          <textarea class="form-control" id="recovery-notes" name="recovery_notes" rows="3">{{ procedure.recovery_notes or '' }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="postoperative-plan">Post-operative plan</label>
+          <textarea class="form-control" id="postoperative-plan" name="postoperative_plan" rows="3">{{ procedure.postoperative_plan or '' }}</textarea>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-outline-primary" type="submit" name="action" value="save">Save record</button>
+          {% if procedure.status == 'scheduled' %}
+          <button class="btn btn-outline-secondary" type="submit" name="action" value="start">Start procedure</button>
+          {% endif %}
+          {% if can_complete %}
+          <button class="btn btn-success" type="submit" name="action" value="complete" onclick="return confirm('Complete and lock this operative record?')">Complete procedure</button>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Procedure record</strong></div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-6"><strong>Pre-operative diagnosis</strong><div class="white-space-pre">{{ procedure.preoperative_diagnosis or 'Not recorded' }}</div></div>
+        <div class="col-md-6"><strong>Anesthesia type</strong><div>{{ procedure.anesthesia_type or 'Not recorded' }}</div></div>
+        <div class="col-12"><strong>Procedure performed</strong><div class="white-space-pre">{{ procedure.procedure_performed or 'Not recorded' }}</div></div>
+        <div class="col-md-6"><strong>Findings</strong><div class="white-space-pre">{{ procedure.findings or 'Not recorded' }}</div></div>
+        <div class="col-md-6"><strong>Anesthesia notes</strong><div class="white-space-pre">{{ procedure.anesthesia_notes or 'Not recorded' }}</div></div>
+        <div class="col-md-6"><strong>Complications</strong><div class="white-space-pre">{{ procedure.complications or 'Not recorded' }}</div></div>
+        <div class="col-md-6"><strong>Estimated blood loss</strong><div>{{ procedure.estimated_blood_loss or 'Not recorded' }}</div></div>
+        <div class="col-md-6"><strong>Recovery / PACU notes</strong><div class="white-space-pre">{{ procedure.recovery_notes or 'Not recorded' }}</div></div>
+        <div class="col-md-6"><strong>Post-operative plan</strong><div class="white-space-pre">{{ procedure.postoperative_plan or 'Not recorded' }}</div></div>
+        {% if procedure.completed_at %}<div class="col-12 text-muted small">Completed {{ procedure.completed_at|local_datetime('%d %b %Y %H:%M') }}</div>{% endif %}
+      </div>
+    </div>
+  </div>
+{% endblock %}
