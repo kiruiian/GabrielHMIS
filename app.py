@@ -5,7 +5,8 @@ import math
 import uuid
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-
+from pathlib import Path
+import openpyxl
 
 import click
 from dotenv import load_dotenv
@@ -244,6 +245,29 @@ COMMON_ICD10 = [
     {"code": "Z23", "text": "Encounter for immunization"},
 ]
 
+ICD11_PATH = Path(__file__).with_name("data") / "SimpleTabulation-ICD-11-MMS-en.xlsx"
+_icd11_rows = None
+
+def load_icd11():
+    global _icd11_rows
+    if _icd11_rows is not None:
+        return _icd11_rows
+    rows = []
+    if ICD11_PATH.exists():
+        book = openpyxl.load_workbook(ICD11_PATH, read_only=True, data_only=True)
+        sheet = book.active
+        for row in sheet.iter_rows(min_row=2, values_only=True):
+            code = str(row[2] or "").strip()
+            title = str(row[4] or "").strip().lstrip("-").strip()
+            kind = str(row[5] or "").strip().lower()
+            chapter = str(row[8] or "").strip()
+            if not code or kind != "category" or chapter == "X":
+                continue
+            rows.append({"code": code, "text": title})
+        book.close()
+    _icd11_rows = rows or COMMON_ICD10
+    return _icd11_rows
+
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "bmp", "webp", "pdf"}
 UPLOAD_FOLDER = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "instance", "uploads", "imaging"
@@ -437,13 +461,11 @@ class Diagnosis(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
     visit_id = db.Column(db.Integer, db.ForeignKey("visit.id"), nullable=True)
-    icd_code = db.Column(db.String(20), nullable=False)
+    icd_code = db.Column(db.String(40), nullable=False)
     diagnosis_text = db.Column(db.String(255), nullable=False)
+    icd_version = db.Column(db.String(10), default="ICD-11")
     diagnosed_by = db.Column(db.String(100))
     diagnosed_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    patient = db.relationship("Patient", backref=db.backref("diagnoses", lazy=True))
-    visit = db.relationship("Visit", backref=db.backref("diagnoses", lazy=True))
 
 class VitalSigns(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -905,8 +927,16 @@ def ensure_schema():
         for column, migration in admission_migrations.items():
             if column not in admission_columns:
                 db.session.execute(text(migration))
+        diagnosis_columns = {
+            row[1] for row in db.session.execute(text("PRAGMA table_info(diagnosis)"))
+        }
+        if "icd_version" not in diagnosis_columns:
+            db.session.execute(
+                text(
+                    "ALTER TABLE diagnosis ADD COLUMN icd_version VARCHAR(10) DEFAULT 'ICD-10'"
+                )
+            )
         db.session.commit()
-
 
 with app.app_context():
     ensure_schema()
@@ -997,6 +1027,17 @@ def register_staff():
 
     return render_template("register_staff.html")
 
+@app.route("/api/icd11")
+@login_required(roles=CLINICAL_READ_ROLES | {"admin"})
+def icd11_search():
+    q = request.args.get("q", "").strip().lower()
+    if len(q) < 2:
+        return {"results": []}
+    hits = [
+        row for row in load_icd11()
+        if q in row["code"].lower() or q in row["text"].lower()
+    ][:15]
+    return {"results": hits}
 
 #main routes
 @app.route("/")
@@ -1336,12 +1377,13 @@ def patient_card(national_id):
             dx = Diagnosis(
                 patient_id=patient.id,
                 visit_id=active_visit.id if active_visit else None,
-                icd_code=icd_code[:20],
+                icd_code=icd_code[:40],
                 diagnosis_text=diagnosis_text[:255],
+                icd_version="ICD-11",
                 diagnosed_by=session.get(
-                    "full_name", session.get("username", "Doctor")
-                ),
-            )
+                "full_name", session.get("username", "Doctor")
+    ),
+)
             db.session.add(dx)
             db.session.flush()
             audit(
@@ -1712,15 +1754,17 @@ def maybe_complete_visit_after_pharmacy(visit_id, patient_id):
     if not visit_id:
         return False
 
+    visit = Visit.query.get(visit_id)
+    if visit and (visit.visit_type or "") == "Inpatient":
+        return False
+    if not visit or (visit.status or "").lower() == "completed":
+        return False
+
     pending = Prescription.query.filter(
         Prescription.visit_id == visit_id,
         Prescription.status.in_(["prescribed", "Prescribed", "pending", "Pending"]),
     ).count()
     if pending > 0:
-        return False
-
-    visit = Visit.query.get(visit_id)
-    if not visit or (visit.status or "").lower() == "completed":
         return False
 
     visit.status = "completed"
@@ -2803,7 +2847,6 @@ def queue_claim(queue_id):
         }
     )
 
-
 @app.route("/api/dashboard-stats")
 @login_required()
 def dashboard_stats():
@@ -3327,10 +3370,21 @@ def inpatient_detail(admission_id):
         .all()
     )
 
-    diagnoses = (
-        Diagnosis.query.filter_by(patient_id=patient.id)
+    diagnoses = []
+    if adm.visit_id:
+        diagnoses = (
+            Diagnosis.query.filter_by(visit_id=adm.visit_id)
+            .order_by(Diagnosis.diagnosed_at.desc())
+            .all()
+        )
+
+    past_diagnoses = (
+        Diagnosis.query.filter(
+            Diagnosis.patient_id == patient.id,
+            Diagnosis.visit_id != adm.visit_id if adm.visit_id else True,
+        )
         .order_by(Diagnosis.diagnosed_at.desc())
-        .limit(20)
+        .limit(10)
         .all()
     )
 
@@ -3350,12 +3404,21 @@ def inpatient_detail(admission_id):
         .limit(10)
         .all()
     )
+    ward_prescriptions = []
+    if adm.visit_id:
+        ward_prescriptions = (
+            Prescription.query.filter_by(visit_id=adm.visit_id)
+            .order_by(Prescription.prescribed_at.desc())
+            .all()
+        )
 
     return render_template(
         "inpatient_detail.html",
         admission=adm,
         notes=notes,
         diagnoses=diagnoses,
+        past_diagnoses=past_diagnoses,
+        ward_prescriptions=ward_prescriptions,
         previous_admissions=previous_admissions,
         visits=visits,
         default_discharge_time=adm.discharge_summary_discharge_at or datetime.utcnow(),
@@ -3396,6 +3459,7 @@ def inpatient_add_note(admission_id):
     )
     db.session.add(wn)
     db.session.flush()
+    ensure_inpatient_visit(adm)
     audit(
         "nursing_note_recorded",
         "ward_note",
@@ -3404,6 +3468,67 @@ def inpatient_add_note(admission_id):
     )
     db.session.commit()
     flash("Nursing note saved.", "success")
+    return redirect(url_for("inpatient_detail", admission_id=adm.id))
+
+def ensure_inpatient_visit(adm):
+    """One open Inpatient visit per admission, used for ward drugs and the invoice."""
+    visit = Visit.query.get(adm.visit_id) if adm.visit_id else None
+    if not visit:
+        visit = Visit(
+            patient_id=adm.patient_id,
+            visit_type="Inpatient",
+            status="admitted",
+            started_at=adm.admitted_at or datetime.utcnow(),
+        )
+        db.session.add(visit)
+        db.session.flush()
+        adm.visit_id = visit.id
+    if not visit.invoice_number:
+        visit.invoice_number = f"INV-{visit.id:06d}"
+    if not visit.consultation_amount:
+        visit.consultation_amount = 0
+    return visit
+
+@app.route("/inpatient/<int:admission_id>/prescribe", methods=["POST"])
+@login_required(roles={"doctor", "admin"})
+def inpatient_prescribe(admission_id):
+    adm = Admission.query.get_or_404(admission_id)
+    if adm.status != "admitted":
+        flash("This admission is closed.", "warning")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+
+    medication = request.form.get("medication", "").strip()
+    dosage = request.form.get("dosage", "").strip()
+    frequency = request.form.get("frequency", "").strip()
+    duration = request.form.get("duration", "").strip()
+    if not all([medication, dosage, frequency, duration]):
+        flash("Medication, dosage, frequency, and duration are required.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+
+    visit = ensure_inpatient_visit(adm)
+    prescription = Prescription(
+        patient_id=adm.patient_id,
+        visit_id=visit.id,
+        medication=medication[:120],
+        dosage=dosage[:80],
+        frequency=frequency[:80],
+        duration=duration[:80],
+        quantity=request.form.get("quantity", "").strip()[:40] or None,
+        route=request.form.get("route", "").strip()[:50] or "Oral",
+        instructions=request.form.get("instructions", "").strip() or None,
+        prescribed_by=session.get("full_name", session.get("username", "Doctor")),
+        status="prescribed",
+    )
+    db.session.add(prescription)
+    db.session.flush()
+    audit(
+        "ward_prescription_created",
+        "prescription",
+        prescription.id,
+        f"admission_id={adm.id}; visit_id={visit.id}",
+    )
+    db.session.commit()
+    flash(f"{medication} sent to pharmacy on the admission invoice.", "success")
     return redirect(url_for("inpatient_detail", admission_id=adm.id))
 
 @app.route("/inpatient/admit", methods=["POST"])

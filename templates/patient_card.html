@@ -208,7 +208,7 @@
 
             <!-- ICD DIAGNOSIS -->
             <div class="card mb-4">
-                <div class="card-header"><strong>Diagnosis (ICD-10)</strong></div>
+                <div class="card-header"><strong>Diagnosis (ICD-11)</strong></div>
                 <div class="card-body">
                     <form method="POST" id="diagnosisForm">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -490,7 +490,6 @@
         {% if user_role in ['doctor', 'admin'] %}
         <script>
             const imagingModalities = {{ imaging_modalities|tojson }};
-            const commonIcd = {{ common_icd10|default([])|tojson }};
 
             const labRequestForm = document.getElementById('labRequestForm');
             const referralRequestForm = document.getElementById('referralRequestForm');
@@ -575,7 +574,6 @@
             });
             updateLabSummary();
 
-            // ICD search
             const icdSearch = document.getElementById('icdSearch');
             const icdResults = document.getElementById('icdResults');
             const icdCodeInput = document.getElementById('icdCodeInput');
@@ -583,27 +581,32 @@
             const selectedDiagnosisBox = document.getElementById('selectedDiagnosisBox');
             const saveDiagnosisBtn = document.getElementById('saveDiagnosisBtn');
 
+            let icdTimer;
             icdSearch?.addEventListener('input', () => {
-                const q = (icdSearch.value || '').trim().toLowerCase();
+                clearTimeout(icdTimer);
+                const q = (icdSearch.value || '').trim();
                 icdResults.innerHTML = '';
-                if (!q) return;
-                commonIcd.filter((row) =>
-                    row.code.toLowerCase().includes(q) || row.text.toLowerCase().includes(q)
-                ).slice(0, 15).forEach((row) => {
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.className = 'list-group-item list-group-item-action';
-                    btn.textContent = `${row.code} — ${row.text}`;
-                    btn.addEventListener('click', () => {
-                        icdCodeInput.value = row.code;
-                        diagnosisTextInput.value = row.text;
-                        selectedDiagnosisBox.innerHTML = `<strong>${row.code}</strong> — ${row.text}`;
-                        saveDiagnosisBtn.disabled = false;
-                        icdResults.innerHTML = '';
-                        icdSearch.value = `${row.code} — ${row.text}`;
+                if (q.length < 2) return;
+                icdTimer = setTimeout(async () => {
+                    const res = await fetch(`/api/icd11?q=${encodeURIComponent(q)}`);
+                    const data = await res.json();
+                    icdResults.innerHTML = '';
+                    (data.results || []).forEach((row) => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'list-group-item list-group-item-action';
+                        btn.textContent = `${row.code} — ${row.text}`;
+                        btn.addEventListener('click', () => {
+                            icdCodeInput.value = row.code;
+                            diagnosisTextInput.value = row.text;
+                            selectedDiagnosisBox.innerHTML = `<strong>${row.code}</strong> — ${row.text}`;
+                            saveDiagnosisBtn.disabled = false;
+                            icdResults.innerHTML = '';
+                            icdSearch.value = `${row.code} — ${row.text}`;
+                        });
+                        icdResults.appendChild(btn);
                     });
-                    icdResults.appendChild(btn);
-                });
+                }, 250);
             });
         </script>
         {% endif %}
