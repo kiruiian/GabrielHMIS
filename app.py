@@ -404,6 +404,27 @@ class Appointment(db.Model):
     checked_in_visit = db.relationship("Visit")
 
 
+class PatientFollowUp(db.Model):
+    __tablename__ = "patient_follow_up"
+
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    visit_id = db.Column(db.Integer, db.ForeignKey("visit.id"))
+    admission_id = db.Column(db.Integer, db.ForeignKey("admission.id"))
+    follow_up_type = db.Column(db.String(60), nullable=False)
+    scheduled_for = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="scheduled")
+    reason = db.Column(db.String(255))
+    notes = db.Column(db.Text)
+    created_by = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
+
+    patient = db.relationship("Patient", backref=db.backref("follow_ups", lazy=True))
+    visit = db.relationship("Visit", backref=db.backref("follow_ups", lazy=True))
+    admission = db.relationship("Admission", backref=db.backref("follow_ups", lazy=True))
+
+
 class TheatreProcedure(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
@@ -833,6 +854,26 @@ def ensure_schema():
             db.session.execute(
                 text("ALTER TABLE visit ADD COLUMN consultation_amount NUMERIC(10, 2)")
             )
+
+        patient_follow_up_columns = {
+            row[1]
+            for row in db.session.execute(text("PRAGMA table_info(patient_follow_up)"))
+        }
+        follow_up_migrations = {
+            "visit_id": "ALTER TABLE patient_follow_up ADD COLUMN visit_id INTEGER",
+            "admission_id": "ALTER TABLE patient_follow_up ADD COLUMN admission_id INTEGER",
+            "scheduled_for": "ALTER TABLE patient_follow_up ADD COLUMN scheduled_for DATETIME",
+            "status": "ALTER TABLE patient_follow_up ADD COLUMN status VARCHAR(20) DEFAULT 'scheduled'",
+            "reason": "ALTER TABLE patient_follow_up ADD COLUMN reason VARCHAR(255)",
+            "notes": "ALTER TABLE patient_follow_up ADD COLUMN notes TEXT",
+            "created_by": "ALTER TABLE patient_follow_up ADD COLUMN created_by VARCHAR(100)",
+            "created_at": "ALTER TABLE patient_follow_up ADD COLUMN created_at DATETIME",
+            "completed_at": "ALTER TABLE patient_follow_up ADD COLUMN completed_at DATETIME",
+        }
+        for column, migration in follow_up_migrations.items():
+            if column not in patient_follow_up_columns:
+                db.session.execute(text(migration))
+
         visits_with_old_numbers = (
             db.session.execute(
                 text(
@@ -1559,6 +1600,90 @@ def patient_card(national_id):
                 f"patient_id={patient.id}",
             )
             flash("Prescription sent to pharmacy.", "success")
+
+        elif action == "follow_up":
+            if user_role not in {"doctor", "nurse", "records", "admin"}:
+                flash("Only clinical staff can schedule follow-ups.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            follow_up_type = request.form.get("follow_up_type", "").strip()
+            scheduled_for_raw = request.form.get("scheduled_for", "").strip()
+            reason = request.form.get("reason", "").strip()
+            notes = request.form.get("notes", "").strip()
+
+            if not follow_up_type or not scheduled_for_raw:
+                flash("Follow-up type and date are required.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            try:
+                scheduled_for = datetime.strptime(scheduled_for_raw, "%Y-%m-%d")
+            except ValueError:
+                flash("Enter a valid follow-up date.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            follow_up = PatientFollowUp(
+                patient_id=patient.id,
+                visit_id=active_visit.id if (active_visit := (
+                    Visit.query.filter(
+                        Visit.patient_id == patient.id,
+                        db.or_(Visit.status != "completed", Visit.status.is_(None)),
+                    )
+                    .order_by(Visit.started_at.desc())
+                    .first()
+                )) else None,
+                admission_id=(
+                    current_admission.id if (
+                        current_admission := (
+                            Admission.query.filter_by(patient_id=patient.id, status="admitted")
+                            .order_by(Admission.admitted_at.desc())
+                            .first()
+                        )
+                    ) else None
+                ),
+                follow_up_type=follow_up_type,
+                scheduled_for=scheduled_for,
+                status="scheduled",
+                reason=reason or None,
+                notes=notes or None,
+                created_by=session.get("full_name", session.get("username", "Staff")),
+            )
+            db.session.add(follow_up)
+            db.session.flush()
+            audit(
+                "follow_up_scheduled",
+                "patient_follow_up",
+                follow_up.id,
+                f"patient_id={patient.id}; type={follow_up_type}",
+            )
+            db.session.commit()
+            flash("Follow-up scheduled successfully.", "success")
+            return redirect(url_for("patient_card", national_id=national_id))
+
+        elif action == "update_follow_up_status":
+            follow_up_id = request.form.get("follow_up_id", type=int)
+            follow_up = PatientFollowUp.query.filter_by(
+                id=follow_up_id, patient_id=patient.id
+            ).first()
+            if not follow_up:
+                flash("Follow-up not found.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            new_status = request.form.get("follow_up_status", "scheduled").strip()
+            if new_status not in {"scheduled", "completed", "cancelled"}:
+                flash("Please choose a valid follow-up status.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            follow_up.status = new_status
+            if new_status == "completed":
+                follow_up.completed_at = datetime.utcnow()
+            elif new_status == "scheduled":
+                follow_up.completed_at = None
+            else:
+                follow_up.completed_at = None
+
+            db.session.commit()
+            flash("Follow-up status updated.", "success")
+            return redirect(url_for("patient_card", national_id=national_id))
 
         else:
             flash("Unknown patient-card action.", "danger")
@@ -2863,11 +2988,16 @@ def dashboard_stats():
         db.func.date(Visit.started_at) == today,
         Visit.visit_type == "New Visit",
     ).count()
+    followups_due = PatientFollowUp.query.filter(
+        PatientFollowUp.status == "scheduled",
+        db.func.date(PatientFollowUp.scheduled_for) == today,
+    ).count()
     return {
         "today_patients": today_patients,
         "today_visits": today_visits,
         "revisit_visits": revisit_visits,
         "new_visits": new_visits,
+        "followups_due": followups_due,
     }
 
 
