@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+
+{% block title %}Renal Unit | St Gabriel Hospital{% endblock %}
+
+{% block content %}
+  <div class="page-hero page-hero-teal mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Outpatient renal service</div>
+        <h3 class="mb-1 dashboard-title">Haemodialysis</h3>
+        <p class="mb-0 hero-text">Manage dialysis charts and SHA preauthorization requests.</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 hero-actions">
+        <a class="btn btn-light btn-sm" href="{{ url_for('patients') }}">Find patient</a>
+        {% if can_request_preauthorization %}
+        <a class="btn btn-warning btn-sm" href="#renal-patient-search">Request SHA preauthorization</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card search-panel mb-4">
+    <div class="card-body">
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-md-8">
+          <label class="form-label" for="renal-search">Search patient</label>
+          <input class="form-control" id="renal-search" type="search" name="q" value="{{ search }}" placeholder="Name or national ID">
+        </div>
+        <div class="col-md-4"><button class="btn btn-outline-primary w-100" type="submit">Search charts</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4" id="renal-patient-search">
+    <div class="card-header"><strong>Find a patient</strong></div>
+    <div class="card-body">
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-md-8">
+          <label class="form-label" for="renal-patient-query">Find patient by name or national ID</label>
+          <input class="form-control" id="renal-patient-query" type="search" name="patient_q" value="{{ patient_search }}" placeholder="Patient name or national ID">
+        </div>
+        <div class="col-md-4"><button class="btn btn-outline-primary w-100" type="submit">Find patient</button></div>
+      </form>
+      {% if patient_search %}
+        {% if patients %}
+        <div class="table-responsive mt-3">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Patient</th><th>National ID</th><th></th></tr></thead>
+            <tbody>
+            {% for patient in patients %}
+              <tr>
+                <td>{{ patient.full_name }}</td>
+                <td>{{ patient.national_id }}</td>
+                <td class="text-end">
+                  <div class="d-flex flex-wrap justify-content-end gap-1">
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('patient_card', national_id=patient.national_id) }}">Patient card</a>
+                  {% if session.get('role') in ['receptionist', 'records', 'accounts', 'admin'] %}
+                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('start_visit', national_id=patient.national_id) }}">Start outpatient visit</a>
+                  {% endif %}
+                  {% if session.get('role') in ['doctor', 'admin'] %}
+                  <a class="btn btn-sm btn-outline-success" href="{{ url_for('patient_card', national_id=patient.national_id) }}#service-requests">Request tests/services</a>
+                  {% endif %}
+                  {% if can_request_preauthorization %}
+                  <a class="btn btn-sm btn-warning" href="{{ url_for('dialysis_preauthorization_create', national_id=patient.national_id) }}">Request preauthorization</a>
+                  {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-muted mt-3">No patient matched “{{ patient_search }}”. Check the name or national ID and try again.</div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card queue-panel mb-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">SHA preauthorization requests</h5>
+        <span class="badge bg-primary rounded-pill px-3 py-2">{{ authorization_requests|length }} requests</span>
+      </div>
+      {% if authorization_requests %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead><tr><th>Requested</th><th>Patient</th><th>Patient ID</th><th>Sessions</th><th>Status</th><th>Authorization #</th><th></th></tr></thead>
+          <tbody>
+          {% for authorization in authorization_requests %}
+            <tr>
+              <td>{{ authorization.submitted_at.strftime('%d %b %Y') }}</td>
+              <td>{{ authorization.patient.full_name }}</td>
+              <td>{{ authorization.patient.national_id }}</td>
+              <td>{{ authorization.requested_sessions }}</td>
+              <td><span class="badge {% if authorization.status == 'approved' %}text-bg-success{% elif authorization.status == 'denied' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ authorization.status|title }}</span></td>
+              <td>{{ authorization.authorization_number or '—' }}</td>
+              <td>
+                <div class="d-flex flex-wrap gap-1">
+                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('dialysis_preauthorization', preauthorization_id=authorization.id) }}">Open request</a>
+                  {% set dialysis_chart = dialysis_sessions_by_preauthorization.get(authorization.id) %}
+                  {% if can_create and authorization.status == 'approved' and not dialysis_chart %}
+                  <a class="btn btn-sm btn-primary" href="{{ url_for('dialysis_session_create', national_id=authorization.patient.national_id, preauthorization_id=authorization.id) }}">Start dialysis</a>
+                  {% elif dialysis_chart %}
+                  <a class="btn btn-sm btn-outline-success" href="{{ url_for('dialysis_session', dialysis_session_id=dialysis_chart.id) }}">Open chart</a>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state text-center py-4"><div class="text-muted">No SHA preauthorization requests recorded yet.</div></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card queue-panel">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Recent session charts</h5>
+        <span class="badge bg-primary rounded-pill px-3 py-2">{{ dialysis_sessions|length }} charts</span>
+      </div>
+      {% if dialysis_sessions %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead><tr><th>Date</th><th>Patient</th><th>Patient ID</th><th>Access</th><th>Session</th><th>SHA status</th><th>Authorization #</th><th></th></tr></thead>
+          <tbody>
+          {% for chart in dialysis_sessions %}
+            <tr>
+              <td>{{ chart.session_date.strftime('%d %b %Y') }}</td>
+              <td>{{ chart.patient.full_name }}</td>
+              <td>{{ chart.patient.national_id }}</td>
+              <td>{{ chart.access_type or '—' }}</td>
+              <td><span class="badge {% if chart.status == 'completed' %}text-bg-success{% else %}text-bg-primary{% endif %}">{{ chart.status|replace('_', ' ')|title }}</span></td>
+              <td><span class="badge {% if chart.sha_authorization_status == 'approved' %}text-bg-success{% elif chart.sha_authorization_status == 'denied' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ chart.sha_authorization_status|title }}</span></td>
+              <td>{{ chart.sha_authorization_number or '—' }}</td>
+              <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('dialysis_session', dialysis_session_id=chart.id) }}">Open chart</a></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state text-center py-5"><h6 class="mb-2">No dialysis charts found</h6><div class="text-muted">Search by patient name or national ID, or create a chart from the patient card.</div></div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

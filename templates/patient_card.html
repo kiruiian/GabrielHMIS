@@ -80,6 +80,11 @@
         <li class="nav-item">
             <button class="nav-link {% if user_role == 'doctor' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#notes">Clinical Notes</button>
         </li>
+        {% if user_role in ['nurse', 'doctor', 'records', 'admin'] and has_dialysis_history %}
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#dialysis">Dialysis</button>
+        </li>
+        {% endif %}
     </ul>
 
     <div class="tab-content">
@@ -205,7 +210,31 @@
                     </div>
                 </div>
             </div>
-
+                        <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>Theatre procedures</strong>
+                    <span class="badge bg-light text-dark">{{ patient.theatre_procedures|length }}</span>
+                </div>
+                <div class="card-body">
+                    {% if patient.theatre_procedures %}
+                        {% for proc in patient.theatre_procedures|sort(attribute='scheduled_at', reverse=True) %}
+                        <div class="d-flex justify-content-between align-items-center border-bottom py-2 gap-2">
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">{{ proc.procedure_name }}</div>
+                                <div class="small text-muted">
+                                    {{ proc.scheduled_at.strftime('%d %b %Y %H:%M') if proc.scheduled_at else '—' }}
+                                    · {{ proc.status|replace('_', ' ')|title }}
+                                    {% if proc.surgeon %} · {{ proc.surgeon }}{% endif %}
+                                </div>
+                            </div>
+                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('theatre_procedure', procedure_id=proc.id) }}">Open record</a>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-muted small mb-0">No theatre procedures recorded.</p>
+                    {% endif %}
+                </div>
+            </div>
             <div class="card mb-4">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <strong>Follow-ups</strong>
@@ -355,7 +384,7 @@
                                 <button type="submit" class="btn btn-primary">Save clinical note</button>
                             </div>
                             {% if user_role in ['doctor', 'admin'] %}
-                            <div class="clinical-next-actions mt-3 pt-3 border-top">
+                            <div id="service-requests" class="clinical-next-actions mt-3 pt-3 border-top">
                                 <div class="text-muted small mb-2">Send the patient to:</div>
                                 <div class="d-flex flex-wrap gap-2">
                                     <button type="button" class="btn btn-outline-primary btn-sm service-request-button" data-service="Lab">Send to Lab</button>
@@ -580,6 +609,49 @@
             </div>
             {% endif %}
         </div>
+
+        {% if user_role in ['nurse', 'doctor', 'records', 'admin'] and has_dialysis_history %}
+        <div class="tab-pane fade" id="dialysis">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                        <div>
+                            <h5 class="mb-1">Haemodialysis charts</h5>
+                            <div class="text-muted small">Outpatient dialysis sessions and SHA authorization status.</div>
+                        </div>
+                    </div>
+                    {% if dialysis_sessions %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr><th>Date</th><th>Physician</th><th>Access</th><th>SHA authorization</th><th>Charted by</th><th></th></tr>
+                            </thead>
+                            <tbody>
+                            {% for dialysis_session in dialysis_sessions %}
+                                <tr>
+                                    <td>{{ dialysis_session.session_date.strftime('%d %b %Y') }}</td>
+                                    <td>{{ dialysis_session.physician or '—' }}</td>
+                                    <td>{{ dialysis_session.access_type or '—' }}</td>
+                                    <td>
+                                        <span class="badge {% if dialysis_session.sha_authorization_status == 'approved' %}text-bg-success{% elif dialysis_session.sha_authorization_status == 'denied' %}text-bg-danger{% else %}text-bg-warning{% endif %}">
+                                            {{ dialysis_session.sha_authorization_status|title }}
+                                        </span>
+                                        {% if dialysis_session.sha_authorization_number %}<span class="small ms-1">{{ dialysis_session.sha_authorization_number }}</span>{% endif %}
+                                    </td>
+                                    <td>{{ dialysis_session.signed_by or dialysis_session.created_by or '—' }}</td>
+                                    <td><a class="btn btn-sm btn-outline-primary" href="{{ url_for('dialysis_session', dialysis_session_id=dialysis_session.id) }}">Open chart</a></td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="empty-state text-center py-4"><div class="text-muted">No dialysis sessions recorded for this patient.</div></div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         {% if user_role in ['doctor', 'admin'] %}
         <script>

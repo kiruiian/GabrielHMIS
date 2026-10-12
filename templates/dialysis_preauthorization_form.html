@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+
+{% block title %}Request SHA Preauthorization | St Gabriel Hospital{% endblock %}
+
+{% block content %}
+  <div class="page-hero page-hero-teal mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Outpatient renal service</div>
+        <h3 class="mb-1 dashboard-title">Request SHA preauthorization</h3>
+        <p class="mb-0 hero-text">{{ patient.full_name }} · Patient ID {{ patient.national_id }}</p>
+      </div>
+      <a class="btn btn-light btn-sm hero-actions" href="{{ url_for('renal_dashboard') }}">Back to Renal</a>
+    </div>
+  </div>
+
+  <div class="alert alert-info">
+    This records and prints the request for staff to submit through the hospital's existing SHA channel. It does not submit or verify requests with SHA.
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Request details</strong></div>
+    <div class="card-body">
+      <form method="post" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-6">
+          <label class="form-label" for="sha-member-number">SHA member number</label>
+          <input class="form-control" id="sha-member-number" name="sha_member_number" maxlength="100" value="{{ form_data.get('sha_member_number', '') }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="submitted-at">Request date</label>
+          <input class="form-control" id="submitted-at" type="date" name="submitted_at" required value="{{ form_data.get('submitted_at', today) }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="requested-sessions">Sessions requested</label>
+          <input class="form-control" id="requested-sessions" type="number" name="requested_sessions" min="1" max="100" required value="{{ form_data.get('requested_sessions', '') }}">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label" for="submission-reference">Submission/reference number <span class="text-muted">(if already submitted)</span></label>
+          <input class="form-control" id="submission-reference" name="submission_reference" maxlength="100" value="{{ form_data.get('submission_reference', '') }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label" for="diagnosis">Diagnosis</label>
+          <textarea class="form-control" id="diagnosis" name="diagnosis" rows="2" maxlength="5000" required>{{ form_data.get('diagnosis', '') }}</textarea>
+        </div>
+        <div class="col-12">
+          <label class="form-label" for="clinical-justification">Clinical justification for dialysis</label>
+          <textarea class="form-control" id="clinical-justification" name="clinical_justification" rows="4" maxlength="10000" required>{{ form_data.get('clinical_justification', '') }}</textarea>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Save request</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('renal_dashboard') }}">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

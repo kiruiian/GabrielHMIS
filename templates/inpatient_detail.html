@@ -4,7 +4,6 @@
 
   <a href="{{ url_for('inpatient_list') }}" class="btn btn-sm btn-outline-secondary mb-3">← Inpatient list</a>
 
-  {# ----- Header ----- #}
   <div class="card shadow-sm mb-4">
     <div class="card-body">
       <div class="d-flex flex-wrap justify-content-between gap-3">
@@ -62,9 +61,24 @@
                    value="{{ default_discharge_time.strftime('%Y-%m-%dT%H:%M') }}">
           </div>
           <div class="col-md-6">
-            <label class="form-label" for="discharge-diagnosis">Final diagnosis <span class="text-danger">Required to finalize</span></label>
-            <input id="discharge-diagnosis" name="discharge_diagnosis" class="form-control" maxlength="255"
-                   value="{{ admission.discharge_diagnosis or '' }}" placeholder="Principal diagnosis at discharge">
+            <label class="form-label" for="discharge-diagnosis-search">Final diagnosis (ICD-11) <span class="text-danger">Required to finalize</span></label>
+            <input id="discharge-diagnosis-search" class="form-control" maxlength="255"
+                   value="{{ (admission.discharge_diagnosis_code ~ ' — ' ~ admission.discharge_diagnosis) if admission.discharge_diagnosis_code else admission.discharge_diagnosis or '' }}"
+                   placeholder="Search by diagnosis or ICD-11 code" autocomplete="off">
+            <input type="hidden" id="discharge-diagnosis-code" name="discharge_diagnosis_code"
+                   value="{{ admission.discharge_diagnosis_code or '' }}">
+            <input type="hidden" id="discharge-diagnosis" name="discharge_diagnosis"
+                   value="{{ admission.discharge_diagnosis or '' }}">
+            <div id="discharge-diagnosis-results" class="list-group mt-2" role="listbox"></div>
+            <div id="discharge-diagnosis-selected" class="small text-muted mt-2" aria-live="polite">
+              {% if admission.discharge_diagnosis_code %}
+              Selected: <strong>{{ admission.discharge_diagnosis_code }}</strong> — {{ admission.discharge_diagnosis }}
+              {% elif admission.discharge_diagnosis %}
+              This saved diagnosis is not coded. Select it again from the ICD-11 results before saving or finalizing.
+              {% else %}
+              Select a diagnosis from the ICD-11 results.
+              {% endif %}
+            </div>
           </div>
           <div class="col-md-6">
             <label class="form-label" for="discharge-condition">Condition at discharge</label>
@@ -112,7 +126,7 @@
   <div class="card shadow-sm mb-4">
     <div class="card-header"><strong>Discharge summary</strong></div>
     <div class="card-body">
-      <p class="mb-1"><strong>Final diagnosis:</strong> {{ admission.discharge_diagnosis or 'Not recorded' }}</p>
+      <p class="mb-1"><strong>Final diagnosis:</strong> {% if admission.discharge_diagnosis_code %}<code>{{ admission.discharge_diagnosis_code }}</code> — {% endif %}{{ admission.discharge_diagnosis or 'Not recorded' }}</p>
       <p class="mb-1"><strong>Condition at discharge:</strong> {{ admission.discharge_condition or '—' }}</p>
       <a class="btn btn-outline-primary btn-sm mt-2"
          href="{{ url_for('inpatient_discharge_summary', admission_id=admission.id) }}">Open printable summary</a>
@@ -120,9 +134,8 @@
   </div>
   {% endif %}
 
-  {# ----- Diagnosis ----- #}
   <div class="card shadow-sm mb-4">
-    <div class="card-header"><strong>Diagnosis</strong></div>
+    <div class="card-header"><strong>Diagnosis for this admission</strong></div>
     <div class="card-body">
       {% if admission.reason %}
       <div class="mb-2">
@@ -143,12 +156,72 @@
         {% endfor %}
       </ul>
       {% else %}
-      <p class="text-muted mb-0">No ICD diagnosis recorded yet. Use the clinical card to add one.</p>
+      <p class="text-muted mb-0">No diagnosis recorded for this admission yet. Add one on the clinical card during this stay.</p>
       {% endif %}
     </div>
   </div>
 
-  {# ----- Nursing notes ----- #}
+  {% if admission.status == 'admitted' %}
+  <script>
+    const diagnosisSearch = document.getElementById('discharge-diagnosis-search');
+    const diagnosisCode = document.getElementById('discharge-diagnosis-code');
+    const diagnosisText = document.getElementById('discharge-diagnosis');
+    const diagnosisResults = document.getElementById('discharge-diagnosis-results');
+    const diagnosisSelected = document.getElementById('discharge-diagnosis-selected');
+    const dischargeForm = diagnosisSearch.form;
+    let diagnosisTimer;
+
+    diagnosisSearch.addEventListener('input', () => {
+      clearTimeout(diagnosisTimer);
+      diagnosisCode.value = '';
+      diagnosisText.value = '';
+      diagnosisResults.replaceChildren();
+      diagnosisSelected.textContent = 'Select a diagnosis from the ICD-11 results.';
+      const query = diagnosisSearch.value.trim();
+      if (query.length < 2) return;
+
+      diagnosisTimer = setTimeout(async () => {
+        try {
+          const response = await fetch(`{{ url_for('icd11_search') }}?q=${encodeURIComponent(query)}`);
+          if (!response.ok) throw new Error(`ICD-11 search failed: ${response.status}`);
+          const data = await response.json();
+          diagnosisResults.replaceChildren();
+          (data.results || []).forEach((row) => {
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.className = 'list-group-item list-group-item-action';
+            option.setAttribute('role', 'option');
+            option.textContent = `${row.code} — ${row.text}`;
+            option.addEventListener('click', () => {
+              diagnosisCode.value = row.code;
+              diagnosisText.value = row.text;
+              diagnosisSearch.value = `${row.code} — ${row.text}`;
+              diagnosisSelected.innerHTML = `Selected: <strong></strong> — `;
+              diagnosisSelected.querySelector('strong').textContent = row.code;
+              diagnosisSelected.append(document.createTextNode(row.text));
+              diagnosisResults.replaceChildren();
+            });
+            diagnosisResults.appendChild(option);
+          });
+          if (!data.results || data.results.length === 0) {
+            diagnosisSelected.textContent = 'No ICD-11 matches found. Try another search.';
+          }
+        } catch (error) {
+          console.error('Could not search ICD-11 diagnoses', error);
+          diagnosisSelected.textContent = 'ICD-11 search is unavailable. Please try again.';
+        }
+      }, 250);
+    });
+
+    dischargeForm.addEventListener('submit', (event) => {
+      if (diagnosisSearch.value.trim() && (!diagnosisCode.value || !diagnosisText.value)) {
+        event.preventDefault();
+        diagnosisSelected.textContent = 'Select a diagnosis from the ICD-11 results before saving.';
+      }
+    });
+  </script>
+  {% endif %}
+
   <div class="card shadow-sm mb-4">
     <div class="card-header"><strong>Nursing notes</strong></div>
     <div class="card-body">
@@ -192,10 +265,68 @@
     </div>
   </div>
 
-  {# ----- Patient history ----- #}
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>Ward prescription</strong></div>
+    <div class="card-body">
+      {% if admission.status == 'admitted' and session.get('role') in ['doctor', 'admin'] %}
+      <form method="POST" action="{{ url_for('inpatient_prescribe', admission_id=admission.id) }}" class="row g-2 mb-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-4">
+          <label class="form-label">Medication</label>
+          <input name="medication" class="form-control" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Dosage</label>
+          <input name="dosage" class="form-control" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Frequency</label>
+          <input name="frequency" class="form-control" placeholder="8" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Duration</label>
+          <input name="duration" class="form-control" placeholder="5 Days" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Quantity</label>
+          <input name="quantity" class="form-control">
+        </div>
+        <div class="col-12">
+          <button class="btn btn-primary" type="submit">Send to pharmacy</button>
+        </div>
+      </form>
+      {% endif %}
+      {% if ward_prescriptions %}
+      <ul class="mb-0">
+        {% for rx in ward_prescriptions %}
+        <li>{{ rx.medication }} · {{ rx.dosage }} · {{ rx.status }}{% if rx.pharmacy_amount %} · {{ '%.2f'|format(rx.pharmacy_amount) }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted mb-0">No ward prescriptions yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
   <div class="card shadow-sm mb-4">
     <div class="card-header"><strong>Patient history</strong></div>
     <div class="card-body">
+      <h6>Previous diagnoses</h6>
+      {% if past_diagnoses %}
+      <ul class="mb-3">
+        {% for d in past_diagnoses %}
+        <li>
+          <code>{{ d.icd_code }}</code> — {{ d.diagnosis_text }}
+          <span class="text-muted small">
+            {% if d.diagnosed_at %}· {{ d.diagnosed_at.strftime('%d %b %Y') }}{% endif %}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted small">No previous diagnoses.</p>
+      {% endif %}
+
       <h6>Previous admissions</h6>
       {% if previous_admissions %}
       <ul class="mb-3">
@@ -212,7 +343,7 @@
       <p class="text-muted small">No previous admissions.</p>
       {% endif %}
 
-      <h6>Recent outpatient visits</h6>
+      <h6>Recent visits</h6>
       {% if visits %}
       <ul class="mb-0">
         {% for v in visits %}

@@ -77,7 +77,7 @@
   </table>
 
   <h2>Final diagnosis</h2>
-  <div class="section-content">{{ admission.discharge_diagnosis or '—' }}</div>
+  <div class="section-content">{% if admission.discharge_diagnosis_code %}{{ admission.discharge_diagnosis_code }} — {% endif %}{{ admission.discharge_diagnosis or '—' }}</div>
 
   <h2>Hospital course and treatment</h2>
   <div class="section-content">{{ admission.hospital_course or '—' }}</div>

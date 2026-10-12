@@ -1,0 +1,186 @@
+{% extends 'base.html' %}
+
+{% macro chart_input(label, name, value, placeholder='', maxlength=30) -%}
+  <div class="col-md-3 col-sm-6">
+    <label class="form-label" for="{{ name }}">{{ label }}</label>
+    <input class="form-control" id="{{ name }}" name="{{ name }}" value="{{ value or '' }}" placeholder="{{ placeholder }}" maxlength="{{ maxlength }}">
+  </div>
+{%- endmacro %}
+
+{% macro chart_textarea(label, name, value, rows=2, maxlength=5000) -%}
+  <div class="col-12">
+    <label class="form-label" for="{{ name }}">{{ label }}</label>
+    <textarea class="form-control" id="{{ name }}" name="{{ name }}" rows="{{ rows }}" maxlength="{{ maxlength }}">{{ value or '' }}</textarea>
+  </div>
+{%- endmacro %}
+
+{% block title %}Haemodialysis Chart | St Gabriel Hospital{% endblock %}
+
+{% block content %}
+  <div class="page-hero page-hero-teal mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Outpatient renal service · Haemodialysis chart</div>
+        <h3 class="mb-1 dashboard-title">{{ patient.full_name }}</h3>
+        <p class="mb-0 hero-text">Patient ID {{ patient.national_id }} · {{ patient.age or 'Age not recorded' }} · {{ patient.gender or 'Sex not recorded' }}</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 hero-actions d-print-none">
+        <a class="btn btn-light btn-sm" href="{{ url_for('renal_dashboard') }}">Renal charts</a>
+        <a class="btn btn-light btn-sm" href="{{ url_for('patient_card', national_id=patient.national_id) }}">Patient card</a>
+        <button class="btn btn-primary btn-sm" type="button" onclick="window.print()">Print chart</button>
+      </div>
+    </div>
+  </div>
+
+  {% if can_manage_authorization %}
+  <div class="card shadow-sm mb-4 d-print-none">
+    <div class="card-header"><strong>SHA preauthorization</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('dialysis_authorization_update', dialysis_session_id=dialysis_session.id) }}" class="row g-3 align-items-end">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-5">
+          <label class="form-label" for="sha-number">Authorization number</label>
+          <input class="form-control" id="sha-number" name="sha_authorization_number" value="{{ dialysis_session.sha_authorization_number or '' }}" maxlength="100">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="sha-status">Status</label>
+          <select class="form-select" id="sha-status" name="sha_authorization_status" required>
+            <option value="pending" {% if dialysis_session.sha_authorization_status == 'pending' %}selected{% endif %}>Pending</option>
+            <option value="approved" {% if dialysis_session.sha_authorization_status == 'approved' %}selected{% endif %}>Approved</option>
+            <option value="denied" {% if dialysis_session.sha_authorization_status == 'denied' %}selected{% endif %}>Denied</option>
+          </select>
+        </div>
+        <div class="col-md-3"><button class="btn btn-primary w-100" type="submit">Save authorization</button></div>
+      </form>
+      <div class="small text-muted mt-2">Authorization status is tracked here but does not prevent nurses from documenting care.</div>
+    </div>
+  </div>
+  {% else %}
+  <div class="alert {% if dialysis_session.sha_authorization_status == 'approved' %}alert-success{% elif dialysis_session.sha_authorization_status == 'denied' %}alert-danger{% else %}alert-warning{% endif %}">
+    <strong>SHA preauthorization:</strong> {{ dialysis_session.sha_authorization_status|title }}
+    {% if dialysis_session.sha_authorization_number %} · {{ dialysis_session.sha_authorization_number }}{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Session chart</h5>
+        <div class="d-flex flex-wrap gap-2">
+          <span class="badge {% if dialysis_session.status == 'completed' %}text-bg-success{% else %}text-bg-primary{% endif %}">{{ dialysis_session.status|replace('_', ' ')|title }}</span>
+          <span class="badge {% if dialysis_session.sha_authorization_status == 'approved' %}text-bg-success{% elif dialysis_session.sha_authorization_status == 'denied' %}text-bg-danger{% else %}text-bg-warning{% endif %}">SHA {{ dialysis_session.sha_authorization_status|title }}</span>
+        </div>
+      </div>
+      <form method="post" action="{% if is_new %}{{ url_for('dialysis_session_create', national_id=patient.national_id, preauthorization_id=dialysis_session.preauthorization_id) }}{% else %}{{ url_for('dialysis_session_save', dialysis_session_id=dialysis_session.id) }}{% endif %}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <fieldset {% if not can_chart %}disabled{% endif %}>
+          <div class="row g-3 mb-4">
+            <div class="col-md-4">
+              <label class="form-label" for="session-date">Date</label>
+              <input class="form-control" id="session-date" type="date" name="session_date" value="{{ dialysis_session.session_date.isoformat() }}" required>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label" for="physician">Physician</label>
+              <input class="form-control" id="physician" name="physician" value="{{ dialysis_session.physician or '' }}" maxlength="100">
+            </div>
+            {{ chart_textarea('Diagnosis (list all)', 'diagnosis', dialysis_session.diagnosis) }}
+            <div class="col-md-4">
+              <label class="form-label" for="access-type">Access</label>
+              <select class="form-select" id="access-type" name="access_type">
+                <option value="">Select access</option>
+                <option value="Perm catheter" {% if dialysis_session.access_type == 'Perm catheter' %}selected{% endif %}>Perm catheter</option>
+                <option value="Temp catheter" {% if dialysis_session.access_type == 'Temp catheter' %}selected{% endif %}>Temp catheter</option>
+                <option value="Graft / fistula" {% if dialysis_session.access_type == 'Graft / fistula' %}selected{% endif %}>Graft / fistula</option>
+                <option value="Other" {% if dialysis_session.access_type == 'Other' %}selected{% endif %}>Other</option>
+              </select>
+            </div>
+            {{ chart_input('Dialysate K', 'dialysate_k', dialysis_session.dialysate_k) }}
+            {{ chart_input('Dialysate Na', 'dialysate_na', dialysis_session.dialysate_na) }}
+            {{ chart_input('Dialysate Ca', 'dialysate_ca', dialysis_session.dialysate_ca) }}
+            {{ chart_input('Bicarbonate', 'dialysate_bicarbonate', dialysis_session.dialysate_bicarbonate) }}
+          </div>
+
+          <h6 class="border-bottom pb-2">Pre-dialysis data</h6>
+          <div class="row g-3 mb-4">
+            {{ chart_input('Temperature', 'pre_temperature', dialysis_session.pre_temperature) }}
+            {{ chart_input('Blood pressure', 'pre_bp', dialysis_session.pre_bp) }}
+            {{ chart_input('HR', 'pre_hr', dialysis_session.pre_hr) }}
+            {{ chart_input('RR', 'pre_rr', dialysis_session.pre_rr) }}
+            {{ chart_input('Current weight', 'pre_current_weight', dialysis_session.pre_current_weight) }}
+            {{ chart_input('Dry weight', 'pre_dry_weight', dialysis_session.pre_dry_weight) }}
+            {{ chart_input('UF goal', 'uf_goal', dialysis_session.uf_goal) }}
+            {{ chart_textarea('Any symptoms', 'pre_symptoms', dialysis_session.pre_symptoms) }}
+          </div>
+
+          <h6 class="border-bottom pb-2">Intradialysis data</h6>
+          <div class="row g-3 mb-3">
+            {{ chart_input('Duration', 'duration', dialysis_session.duration, 'e.g. 4 hours') }}
+            {{ chart_input('Machine serial', 'machine_serial', dialysis_session.machine_serial, '', 80) }}
+            {{ chart_input('Heparin', 'heparin', dialysis_session.heparin, '', 80) }}
+          </div>
+          <div class="table-responsive mb-4">
+            <table class="table table-sm table-bordered align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Time</th><th>Blood pressure</th><th>Pulse</th><th>AP</th><th>VP</th>
+                  <th>BFR</th><th>DFR</th><th>TMP</th><th>UFR</th><th>Fluids removed</th><th>Comments</th>
+                </tr>
+              </thead>
+              <tbody>
+              {% for row_index in range([10, observation_rows|length]|max) %}
+                {% set row = observation_rows[row_index] if row_index < observation_rows|length else none %}
+                <tr>
+                  <td><input class="form-control form-control-sm" name="reading_time" value="{{ row.reading_time if row else '' }}" aria-label="Reading {{ row_index + 1 }} time"></td>
+                  <td><input class="form-control form-control-sm" name="reading_bp" value="{{ row.blood_pressure if row else '' }}" aria-label="Reading {{ row_index + 1 }} blood pressure"></td>
+                  <td><input class="form-control form-control-sm" name="reading_pulse" value="{{ row.pulse if row else '' }}" aria-label="Reading {{ row_index + 1 }} pulse"></td>
+                  <td><input class="form-control form-control-sm" name="reading_ap" value="{{ row.arterial_pressure if row else '' }}" aria-label="Reading {{ row_index + 1 }} AP"></td>
+                  <td><input class="form-control form-control-sm" name="reading_vp" value="{{ row.venous_pressure if row else '' }}" aria-label="Reading {{ row_index + 1 }} VP"></td>
+                  <td><input class="form-control form-control-sm" name="reading_bfr" value="{{ row.blood_flow_rate if row else '' }}" aria-label="Reading {{ row_index + 1 }} BFR"></td>
+                  <td><input class="form-control form-control-sm" name="reading_dfr" value="{{ row.dialysate_flow_rate if row else '' }}" aria-label="Reading {{ row_index + 1 }} DFR"></td>
+                  <td><input class="form-control form-control-sm" name="reading_tmp" value="{{ row.tmp if row else '' }}" aria-label="Reading {{ row_index + 1 }} TMP"></td>
+                  <td><input class="form-control form-control-sm" name="reading_ufr" value="{{ row.ufr if row else '' }}" aria-label="Reading {{ row_index + 1 }} UFR"></td>
+                  <td><input class="form-control form-control-sm" name="reading_fluids_removed" value="{{ row.fluids_removed if row else '' }}" aria-label="Reading {{ row_index + 1 }} fluids removed"></td>
+                  <td><input class="form-control form-control-sm" name="reading_comments" value="{{ row.comments if row else '' }}" aria-label="Reading {{ row_index + 1 }} comments"></td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <h6 class="border-bottom pb-2">Post-dialysis data</h6>
+          <div class="row g-3 mb-4">
+            {{ chart_input('Temperature', 'post_temperature', dialysis_session.post_temperature) }}
+            {{ chart_input('Blood pressure', 'post_bp', dialysis_session.post_bp) }}
+            {{ chart_input('HR', 'post_hr', dialysis_session.post_hr) }}
+            {{ chart_input('RR', 'post_rr', dialysis_session.post_rr) }}
+            {{ chart_input('Current weight', 'post_current_weight', dialysis_session.post_current_weight) }}
+            {{ chart_input('Dry weight', 'post_dry_weight', dialysis_session.post_dry_weight) }}
+            {{ chart_input('UF achieved', 'uf_achieved', dialysis_session.uf_achieved) }}
+            {{ chart_textarea('Any symptoms', 'post_symptoms', dialysis_session.post_symptoms) }}
+            {{ chart_textarea('Medication', 'medication', dialysis_session.medication) }}
+            {{ chart_textarea('Brief comments', 'brief_comments', dialysis_session.brief_comments) }}
+            <div class="col-md-6">
+              <label class="form-label" for="served-by">Served by</label>
+              <input class="form-control" id="served-by" name="served_by" value="{{ dialysis_session.served_by or session.get('full_name', '') }}" maxlength="100">
+            </div>
+          </div>
+        </fieldset>
+        {% if can_chart %}
+        <div class="d-flex flex-wrap gap-2 d-print-none">
+          <button type="submit" class="btn btn-primary">{% if is_new %}Save dialysis chart{% else %}Save chart updates{% endif %}</button>
+          {% if dialysis_session.status != 'completed' %}
+          <button type="submit" class="btn btn-success" name="action" value="finish_session">Save chart &amp; finish dialysis</button>
+          {% endif %}
+          <a class="btn btn-outline-secondary" href="{{ url_for('renal_dashboard') }}">Cancel</a>
+        </div>
+        {% endif %}
+      </form>
+      {% if dialysis_session.signed_at %}
+      <div class="border-top mt-3 pt-3 small text-muted">Recorded by {{ dialysis_session.signed_by or 'Staff' }} on {{ dialysis_session.signed_at.strftime('%d %b %Y at %H:%M') }} · Served by {{ dialysis_session.served_by or '—' }}</div>
+      {% endif %}
+      {% if dialysis_session.completed_at %}
+      <div class="small text-muted mt-2">Session finished by {{ dialysis_session.completed_by or 'Staff' }} on {{ dialysis_session.completed_at.strftime('%d %b %Y at %H:%M') }}.</div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

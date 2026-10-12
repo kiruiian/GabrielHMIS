@@ -77,7 +77,7 @@ VALID_ROLES = {
 }
 PATIENT_ACCESS_ROLES = {"receptionist", "doctor", "nurse", "triage", "records"}
 REGISTRATION_ROLES = {"receptionist", "records"}
-VISIT_MANAGEMENT_ROLES = {"receptionist", "records"}
+VISIT_MANAGEMENT_ROLES = {"receptionist", "records", "accounts"}
 QUEUE_ASSIGNMENT_ROLES = {"receptionist", "records"}
 CLINICAL_READ_ROLES = {"doctor", "nurse", "triage", "records", "pharmacist"}
 APPOINTMENT_VIEW_ROLES = {"receptionist", "doctor", "nurse", "triage", "records"}
@@ -89,6 +89,10 @@ INVOICE_VIEW_ROLES = {"accounts", "admin", "receptionist", "records"}
 VITALS_ENTRY_ROLES = {"nurse", "triage"}
 NOTE_ENTRY_ROLES = {"doctor", "nurse"}
 SERVICE_REQUEST_ROLES = {"doctor", "receptionist", "records", "accounts", "admin"}
+RENAL_VIEW_ROLES = {"nurse", "doctor", "records", "accounts", "receptionist", "admin"}
+RENAL_CHART_ROLES = {"nurse", "doctor", "admin"}
+RENAL_PREAUTH_REQUEST_ROLES = {"nurse", "doctor", "admin", "receptionist", "records", "accounts"}
+RENAL_AUTHORIZATION_ROLES = {"accounts", "admin", "receptionist", "records"}
 PHARMACY_ROLES = {"pharmacist"}
 RADIOLOGY_ROLES = {"radiographer"}
 IMAGING_VIEW_ROLES = {
@@ -272,7 +276,11 @@ ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "bmp", "webp", "pdf"}
 UPLOAD_FOLDER = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "instance", "uploads", "imaging"
 )
+THEATRE_UPLOAD_FOLDER = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "instance", "uploads", "theatre"
+)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(THEATRE_UPLOAD_FOLDER, exist_ok=True)
 
 
 def get_queue_identifier(patient_id):
@@ -434,7 +442,56 @@ class TheatreProcedure(db.Model):
     surgeon = db.Column(db.String(100))
     anesthetist = db.Column(db.String(100))
     status = db.Column(db.String(20), nullable=False, default="scheduled")
+
+    # Consent (detailed – matches Patients Consent Form.docx)
+    consent_obtained = db.Column(db.Boolean, default=False)
+    consent_procedure_description = db.Column(db.Text)
+    consent_specific_risks = db.Column(db.Text)
+    consent_given_by = db.Column(db.String(120))
+    consent_relationship = db.Column(db.String(40))  # self / child / spouse / relative
+    consent_explained_by = db.Column(db.String(100))
+    consent_witness_name = db.Column(db.String(100))
+    consent_notes = db.Column(db.Text)
+    consented_at = db.Column(db.DateTime)
+    consented_by_staff = db.Column(db.String(100))
+
+    # Pre-anaesthetic review
+    pre_anaesth_presenting_complaints = db.Column(db.Text)
+    pre_anaesth_pmsh = db.Column(db.Text)
+    pre_anaesth_diagnosis = db.Column(db.Text)
+    pre_anaesth_operation = db.Column(db.Text)
+    pre_anaesth_oe = db.Column(db.Text)
+    pre_anaesth_systemic_exam = db.Column(db.Text)
+    pre_anaesth_impression = db.Column(db.Text)
+    pre_anaesth_plan = db.Column(db.Text)
+    pre_anaesthesia_reviewed_by = db.Column(db.String(100))
+    pre_anaesthesia_at = db.Column(db.DateTime)
+
+    # Pre-operative theatre checklist
+    checklist_id_card = db.Column(db.Boolean, default=False)
+    checklist_starved = db.Column(db.Boolean, default=False)
+    checklist_shaved = db.Column(db.Boolean, default=False)
+    checklist_consent = db.Column(db.Boolean, default=False)
+    checklist_catheterized = db.Column(db.Boolean, default=False)
+    checklist_group_match = db.Column(db.Boolean, default=False)
+    checklist_iv_line = db.Column(db.Boolean, default=False)
+    checklist_dentures = db.Column(db.Boolean, default=False)
+    checklist_ng_tube = db.Column(db.Boolean, default=False)
+    checklist_hb = db.Column(db.Boolean, default=False)
+    checklist_preop_obs = db.Column(db.Boolean, default=False)
+    preop_temperature = db.Column(db.String(20))
+    preop_pulse = db.Column(db.String(20))
+    preop_bp = db.Column(db.String(20))
+    preop_respiration = db.Column(db.String(20))
+    premed_notes = db.Column(db.Text)
+    preop_theatre_completed_by = db.Column(db.String(100))
+
+    # Operation notes
     preoperative_diagnosis = db.Column(db.Text)
+    incision = db.Column(db.String(255))
+    scrub_nurse = db.Column(db.String(100))
+    operation_time_from = db.Column(db.String(20))
+    operation_time_to = db.Column(db.String(20))
     anesthesia_type = db.Column(db.String(100))
     procedure_performed = db.Column(db.Text)
     findings = db.Column(db.Text)
@@ -443,12 +500,139 @@ class TheatreProcedure(db.Model):
     estimated_blood_loss = db.Column(db.String(80))
     recovery_notes = db.Column(db.Text)
     postoperative_plan = db.Column(db.Text)
+    post_op_diagnosis = db.Column(db.Text)
+    outcome = db.Column(db.String(120))
+
+    # Anaesthetic record key fields
+    anaesth_induction = db.Column(db.String(255))
+    anaesth_airway = db.Column(db.String(255))
+    anaesth_premedication = db.Column(db.String(255))
+    anaesth_result = db.Column(db.Text)
+
+    # Consumables
+    consumables_notes = db.Column(db.Text)
     created_by = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     completed_at = db.Column(db.DateTime)
 
     patient = db.relationship("Patient", backref=db.backref("theatre_procedures", lazy=True))
     admission = db.relationship("Admission", backref=db.backref("theatre_procedures", lazy=True))
+
+    attachments = db.relationship(
+        "TheatreAttachment", backref="procedure", lazy=True, cascade="all, delete-orphan"
+    )
+
+
+class TheatreAttachment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    procedure_id = db.Column(db.Integer, db.ForeignKey("theatre_procedure.id"), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    original_name = db.Column(db.String(255))
+    attachment_type = db.Column(db.String(40), default="other")
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    uploaded_by = db.Column(db.String(100))
+
+class DialysisSession(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    visit_id = db.Column(db.Integer, db.ForeignKey("visit.id"))
+    preauthorization_id = db.Column(
+        db.Integer, db.ForeignKey("dialysis_authorization_request.id")
+    )
+    session_date = db.Column(db.Date, nullable=False)
+    physician = db.Column(db.String(100))
+    diagnosis = db.Column(db.Text)
+    access_type = db.Column(db.String(40))
+    dialysate_k = db.Column(db.String(30))
+    dialysate_na = db.Column(db.String(30))
+    dialysate_ca = db.Column(db.String(30))
+    dialysate_bicarbonate = db.Column(db.String(30))
+    pre_temperature = db.Column(db.String(30))
+    pre_bp = db.Column(db.String(30))
+    pre_hr = db.Column(db.String(30))
+    pre_rr = db.Column(db.String(30))
+    pre_current_weight = db.Column(db.String(30))
+    pre_dry_weight = db.Column(db.String(30))
+    uf_goal = db.Column(db.String(30))
+    pre_symptoms = db.Column(db.Text)
+    duration = db.Column(db.String(30))
+    machine_serial = db.Column(db.String(80))
+    heparin = db.Column(db.String(80))
+    post_temperature = db.Column(db.String(30))
+    post_bp = db.Column(db.String(30))
+    post_hr = db.Column(db.String(30))
+    post_rr = db.Column(db.String(30))
+    post_current_weight = db.Column(db.String(30))
+    post_dry_weight = db.Column(db.String(30))
+    uf_achieved = db.Column(db.String(30))
+    post_symptoms = db.Column(db.Text)
+    medication = db.Column(db.Text)
+    brief_comments = db.Column(db.Text)
+    served_by = db.Column(db.String(100))
+    signed_by = db.Column(db.String(100))
+    signed_at = db.Column(db.DateTime)
+    status = db.Column(db.String(20), nullable=False, default="in_progress")
+    completed_at = db.Column(db.DateTime)
+    completed_by = db.Column(db.String(100))
+    sha_authorization_number = db.Column(db.String(100))
+    sha_authorization_status = db.Column(db.String(20), nullable=False, default="pending")
+    created_by = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    patient = db.relationship("Patient", backref=db.backref("dialysis_sessions", lazy=True))
+    visit = db.relationship("Visit")
+    observations = db.relationship(
+        "DialysisObservation",
+        backref="dialysis_session",
+        lazy=True,
+        cascade="all, delete-orphan",
+        order_by="DialysisObservation.id",
+    )
+
+
+class DialysisObservation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    dialysis_session_id = db.Column(
+        db.Integer, db.ForeignKey("dialysis_session.id"), nullable=False
+    )
+    reading_time = db.Column(db.String(20))
+    blood_pressure = db.Column(db.String(30))
+    pulse = db.Column(db.String(30))
+    arterial_pressure = db.Column(db.String(30))
+    venous_pressure = db.Column(db.String(30))
+    blood_flow_rate = db.Column(db.String(30))
+    dialysate_flow_rate = db.Column(db.String(30))
+    tmp = db.Column(db.String(30))
+    ufr = db.Column(db.String(30))
+    fluids_removed = db.Column(db.String(30))
+    comments = db.Column(db.Text)
+
+
+class DialysisAuthorizationRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    sha_member_number = db.Column(db.String(100))
+    diagnosis = db.Column(db.Text, nullable=False)
+    clinical_justification = db.Column(db.Text, nullable=False)
+    requested_sessions = db.Column(db.Integer, nullable=False)
+    submission_reference = db.Column(db.String(100))
+    submitted_at = db.Column(db.Date, nullable=False, default=datetime.utcnow)
+    status = db.Column(db.String(20), nullable=False, default="pending")
+    authorization_number = db.Column(db.String(100))
+    approved_sessions = db.Column(db.Integer)
+    valid_from = db.Column(db.Date)
+    valid_until = db.Column(db.Date)
+    response_notes = db.Column(db.Text)
+    requested_by = db.Column(db.String(100))
+    reviewed_by = db.Column(db.String(100))
+    reviewed_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    patient = db.relationship(
+        "Patient", backref=db.backref("dialysis_authorization_requests", lazy=True)
+    )
 
 
 class InvoicePayment(db.Model):
@@ -697,6 +881,7 @@ class Admission(db.Model):
     discharged_by = db.Column(db.String(100))
     discharge_notes = db.Column(db.String(255))
     discharge_diagnosis = db.Column(db.String(255))
+    discharge_diagnosis_code = db.Column(db.String(40))
     hospital_course = db.Column(db.Text)
     discharge_condition = db.Column(db.String(80))
     discharge_medications = db.Column(db.Text)
@@ -898,6 +1083,21 @@ def ensure_schema():
             db.session.execute(
                 text("ALTER TABLE vital_signs ADD COLUMN pain_score INTEGER")
             )
+        dialysis_columns = {
+            row[1]
+            for row in db.session.execute(
+                text("PRAGMA table_info(dialysis_session)")
+            )
+        }
+        dialysis_migrations = {
+            "status": "ALTER TABLE dialysis_session ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'in_progress'",
+            "completed_at": "ALTER TABLE dialysis_session ADD COLUMN completed_at DATETIME",
+            "completed_by": "ALTER TABLE dialysis_session ADD COLUMN completed_by VARCHAR(100)",
+            "preauthorization_id": "ALTER TABLE dialysis_session ADD COLUMN preauthorization_id INTEGER",
+        }
+        for column, migration in dialysis_migrations.items():
+            if column not in dialysis_columns:
+                db.session.execute(text(migration))
         prescription_columns = {
             row[1]
             for row in db.session.execute(text("PRAGMA table_info(prescription)"))
@@ -957,6 +1157,7 @@ def ensure_schema():
         }
         admission_migrations = {
             "discharge_diagnosis": "ALTER TABLE admission ADD COLUMN discharge_diagnosis VARCHAR(255)",
+            "discharge_diagnosis_code": "ALTER TABLE admission ADD COLUMN discharge_diagnosis_code VARCHAR(40)",
             "hospital_course": "ALTER TABLE admission ADD COLUMN hospital_course TEXT",
             "discharge_condition": "ALTER TABLE admission ADD COLUMN discharge_condition VARCHAR(80)",
             "discharge_medications": "ALTER TABLE admission ADD COLUMN discharge_medications TEXT",
@@ -977,6 +1178,71 @@ def ensure_schema():
                     "ALTER TABLE diagnosis ADD COLUMN icd_version VARCHAR(10) DEFAULT 'ICD-10'"
                 )
             )
+
+        theatre_columns = {
+            row[1] for row in db.session.execute(text("PRAGMA table_info(theatre_procedure)"))
+        }
+        theatre_migrations = {
+            "consent_obtained": "ALTER TABLE theatre_procedure ADD COLUMN consent_obtained BOOLEAN DEFAULT 0",
+            "consent_procedure_description": "ALTER TABLE theatre_procedure ADD COLUMN consent_procedure_description TEXT",
+            "consent_specific_risks": "ALTER TABLE theatre_procedure ADD COLUMN consent_specific_risks TEXT",
+            "consent_given_by": "ALTER TABLE theatre_procedure ADD COLUMN consent_given_by VARCHAR(120)",
+            "consent_relationship": "ALTER TABLE theatre_procedure ADD COLUMN consent_relationship VARCHAR(40)",
+            "consent_explained_by": "ALTER TABLE theatre_procedure ADD COLUMN consent_explained_by VARCHAR(100)",
+            "consent_witness_name": "ALTER TABLE theatre_procedure ADD COLUMN consent_witness_name VARCHAR(100)",
+            "consent_notes": "ALTER TABLE theatre_procedure ADD COLUMN consent_notes TEXT",
+            "consented_at": "ALTER TABLE theatre_procedure ADD COLUMN consented_at DATETIME",
+            "consented_by_staff": "ALTER TABLE theatre_procedure ADD COLUMN consented_by_staff VARCHAR(100)",
+            "pre_anaesth_presenting_complaints": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesth_presenting_complaints TEXT",
+            "pre_anaesth_pmsh": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesth_pmsh TEXT",
+            "pre_anaesth_diagnosis": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesth_diagnosis TEXT",
+            "pre_anaesth_operation": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesth_operation TEXT",
+            "pre_anaesth_oe": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesth_oe TEXT",
+            "pre_anaesth_systemic_exam": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesth_systemic_exam TEXT",
+            "pre_anaesth_impression": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesth_impression TEXT",
+            "pre_anaesth_plan": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesth_plan TEXT",
+            "pre_anaesthesia_reviewed_by": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesthesia_reviewed_by VARCHAR(100)",
+            "pre_anaesthesia_at": "ALTER TABLE theatre_procedure ADD COLUMN pre_anaesthesia_at DATETIME",
+            "checklist_id_card": "ALTER TABLE theatre_procedure ADD COLUMN checklist_id_card BOOLEAN DEFAULT 0",
+            "checklist_starved": "ALTER TABLE theatre_procedure ADD COLUMN checklist_starved BOOLEAN DEFAULT 0",
+            "checklist_shaved": "ALTER TABLE theatre_procedure ADD COLUMN checklist_shaved BOOLEAN DEFAULT 0",
+            "checklist_consent": "ALTER TABLE theatre_procedure ADD COLUMN checklist_consent BOOLEAN DEFAULT 0",
+            "checklist_catheterized": "ALTER TABLE theatre_procedure ADD COLUMN checklist_catheterized BOOLEAN DEFAULT 0",
+            "checklist_group_match": "ALTER TABLE theatre_procedure ADD COLUMN checklist_group_match BOOLEAN DEFAULT 0",
+            "checklist_iv_line": "ALTER TABLE theatre_procedure ADD COLUMN checklist_iv_line BOOLEAN DEFAULT 0",
+            "checklist_dentures": "ALTER TABLE theatre_procedure ADD COLUMN checklist_dentures BOOLEAN DEFAULT 0",
+            "checklist_ng_tube": "ALTER TABLE theatre_procedure ADD COLUMN checklist_ng_tube BOOLEAN DEFAULT 0",
+            "checklist_hb": "ALTER TABLE theatre_procedure ADD COLUMN checklist_hb BOOLEAN DEFAULT 0",
+            "checklist_preop_obs": "ALTER TABLE theatre_procedure ADD COLUMN checklist_preop_obs BOOLEAN DEFAULT 0",
+            "preop_temperature": "ALTER TABLE theatre_procedure ADD COLUMN preop_temperature VARCHAR(20)",
+            "preop_pulse": "ALTER TABLE theatre_procedure ADD COLUMN preop_pulse VARCHAR(20)",
+            "preop_bp": "ALTER TABLE theatre_procedure ADD COLUMN preop_bp VARCHAR(20)",
+            "preop_respiration": "ALTER TABLE theatre_procedure ADD COLUMN preop_respiration VARCHAR(20)",
+            "premed_notes": "ALTER TABLE theatre_procedure ADD COLUMN premed_notes TEXT",
+            "preop_theatre_completed_by": "ALTER TABLE theatre_procedure ADD COLUMN preop_theatre_completed_by VARCHAR(100)",
+            "incision": "ALTER TABLE theatre_procedure ADD COLUMN incision VARCHAR(255)",
+            "scrub_nurse": "ALTER TABLE theatre_procedure ADD COLUMN scrub_nurse VARCHAR(100)",
+            "operation_time_from": "ALTER TABLE theatre_procedure ADD COLUMN operation_time_from VARCHAR(20)",
+            "operation_time_to": "ALTER TABLE theatre_procedure ADD COLUMN operation_time_to VARCHAR(20)",
+            "post_op_diagnosis": "ALTER TABLE theatre_procedure ADD COLUMN post_op_diagnosis TEXT",
+            "outcome": "ALTER TABLE theatre_procedure ADD COLUMN outcome VARCHAR(120)",
+            "anaesth_induction": "ALTER TABLE theatre_procedure ADD COLUMN anaesth_induction VARCHAR(255)",
+            "anaesth_airway": "ALTER TABLE theatre_procedure ADD COLUMN anaesth_airway VARCHAR(255)",
+            "anaesth_premedication": "ALTER TABLE theatre_procedure ADD COLUMN anaesth_premedication VARCHAR(255)",
+            "anaesth_result": "ALTER TABLE theatre_procedure ADD COLUMN anaesth_result TEXT",
+            "consumables_notes": "ALTER TABLE theatre_procedure ADD COLUMN consumables_notes TEXT",
+            "post_op_diagnosis": "ALTER TABLE theatre_procedure ADD COLUMN post_op_diagnosis TEXT",
+            "outcome": "ALTER TABLE theatre_procedure ADD COLUMN outcome VARCHAR(120)",
+            "anaesth_induction": "ALTER TABLE theatre_procedure ADD COLUMN anaesth_induction VARCHAR(255)",
+            "anaesth_airway": "ALTER TABLE theatre_procedure ADD COLUMN anaesth_airway VARCHAR(255)",
+            "anaesth_premedication": "ALTER TABLE theatre_procedure ADD COLUMN anaesth_premedication VARCHAR(255)",
+            "anaesth_result": "ALTER TABLE theatre_procedure ADD COLUMN anaesth_result TEXT",
+            "consumables_notes": "ALTER TABLE theatre_procedure ADD COLUMN consumables_notes TEXT",
+                    }
+        for column, migration in theatre_migrations.items():
+            if column not in theatre_columns:
+                db.session.execute(text(migration))
+
         db.session.commit()
 
 with app.app_context():
@@ -1069,7 +1335,7 @@ def register_staff():
     return render_template("register_staff.html")
 
 @app.route("/api/icd11")
-@login_required(roles=CLINICAL_READ_ROLES | {"admin"})
+@login_required(roles=CLINICAL_READ_ROLES | INPATIENT_ROLES | {"admin"})
 def icd11_search():
     q = request.args.get("q", "").strip().lower()
     if len(q) < 2:
@@ -1342,7 +1608,7 @@ def patient_card(national_id):
 
                 lab_order = LabOrder(
                     patient_id=patient.id,
-                    visit_id=active_visit.id,
+                    visit_id=active_visit.id if active_visit else None,
                     service_request_id=svc.id,
                     test_name=", ".join(test_names),
                     specimen_type=", ".join(specimen_types) or "See test items",
@@ -1795,6 +2061,18 @@ def patient_card(national_id):
         .order_by(Admission.admitted_at.desc())
         .first()
     )
+    dialysis_sessions = (
+        DialysisSession.query.filter_by(patient_id=patient.id)
+        .order_by(DialysisSession.session_date.desc(), DialysisSession.id.desc())
+        .limit(20)
+        .all()
+    )
+    has_dialysis_history = (
+        DialysisSession.query.filter_by(
+            patient_id=patient.id, status="completed"
+        ).first()
+        is not None
+    )
     
     visits = (
         Visit.query.filter_by(patient_id=patient.id)
@@ -1831,8 +2109,615 @@ def patient_card(national_id):
         visit_diagnoses=visit_diagnoses,
         visit_prescriptions=visit_prescriptions,
         current_admission=current_admission,
+        dialysis_sessions=dialysis_sessions,
+        has_dialysis_history=has_dialysis_history,
         common_icd10=COMMON_ICD10,
     )
+
+
+@app.route("/renal")
+@login_required(roles=RENAL_VIEW_ROLES)
+def renal_dashboard():
+    search = request.args.get("q", "").strip()
+    patient_search = request.args.get("patient_q", "").strip()
+    query = DialysisSession.query.join(Patient)
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.filter(
+            or_(
+                Patient.national_id.ilike(search_pattern),
+                Patient.name.ilike(search_pattern),
+                Patient.first_name.ilike(search_pattern),
+                Patient.other_names.ilike(search_pattern),
+            )
+        )
+    dialysis_sessions = (
+        query.order_by(DialysisSession.session_date.desc(), DialysisSession.id.desc())
+        .limit(100)
+        .all()
+    )
+    authorization_requests = (
+        DialysisAuthorizationRequest.query
+        .order_by(
+            DialysisAuthorizationRequest.submitted_at.desc(),
+            DialysisAuthorizationRequest.id.desc(),
+        )
+        .limit(100)
+        .all()
+    )
+    dialysis_sessions_by_preauthorization = {
+        authorization.id: dialysis_session_for_preauthorization(authorization)
+        for authorization in authorization_requests
+    }
+    patients = []
+    if patient_search:
+        patient_pattern = f"%{patient_search}%"
+        patients = (
+            Patient.query.filter(
+                or_(
+                    Patient.national_id.ilike(patient_pattern),
+                    Patient.name.ilike(patient_pattern),
+                    Patient.first_name.ilike(patient_pattern),
+                    Patient.other_names.ilike(patient_pattern),
+                )
+            )
+            .order_by(Patient.name.asc())
+            .limit(25)
+            .all()
+        )
+    return render_template(
+        "renal.html",
+        dialysis_sessions=dialysis_sessions,
+        search=search,
+        patient_search=patient_search,
+        patients=patients,
+        can_create=session.get("role") in RENAL_CHART_ROLES,
+        can_request_preauthorization=(
+            session.get("role") in RENAL_PREAUTH_REQUEST_ROLES
+        ),
+        authorization_requests=authorization_requests,
+        dialysis_sessions_by_preauthorization=dialysis_sessions_by_preauthorization,
+    )
+
+
+def dialysis_session_for_preauthorization(preauthorization):
+    conditions = [
+        DialysisSession.preauthorization_id == preauthorization.id,
+        db.and_(
+            DialysisSession.patient_id == preauthorization.patient_id,
+            DialysisSession.preauthorization_id.is_(None),
+            DialysisSession.created_at >= preauthorization.created_at,
+        ),
+    ]
+    if preauthorization.authorization_number:
+        conditions.append(
+            db.and_(
+                DialysisSession.patient_id == preauthorization.patient_id,
+                DialysisSession.sha_authorization_number
+                == preauthorization.authorization_number,
+            )
+        )
+    return (
+        DialysisSession.query.filter(db.or_(*conditions))
+        .order_by(DialysisSession.created_at.asc(), DialysisSession.id.asc())
+        .first()
+    )
+
+
+@app.route(
+    "/patient/<national_id>/renal/preauthorization/new",
+    methods=["GET", "POST"],
+)
+@login_required(roles=RENAL_PREAUTH_REQUEST_ROLES)
+def dialysis_preauthorization_create(national_id):
+    patient = Patient.query.filter_by(national_id=national_id).first_or_404()
+    if request.method == "POST":
+        member_number = (
+            request.form.get("sha_member_number", "").strip()[:100] or None
+        )
+        diagnosis = request.form.get("diagnosis", "").strip()[:5000]
+        clinical_justification = request.form.get(
+            "clinical_justification", ""
+        ).strip()[:10000]
+        submission_reference = (
+            request.form.get("submission_reference", "").strip()[:100] or None
+        )
+        try:
+            requested_sessions = int(request.form.get("requested_sessions", ""))
+            submitted_at = datetime.strptime(
+                request.form.get("submitted_at", "").strip(), "%Y-%m-%d"
+            ).date()
+            if requested_sessions < 1 or requested_sessions > 100:
+                raise ValueError("Requested sessions must be between 1 and 100.")
+        except ValueError as error:
+            message = (
+                str(error)
+                if str(error) == "Requested sessions must be between 1 and 100."
+                else "Enter a valid request date and a whole number of sessions."
+            )
+            flash(message, "danger")
+            return render_template(
+                "dialysis_preauthorization_form.html",
+                patient=patient,
+                form_data=request.form,
+                today=datetime.now().astimezone().date().isoformat(),
+            )
+        if not diagnosis or not clinical_justification:
+            flash("Diagnosis and clinical justification are required.", "danger")
+            return render_template(
+                "dialysis_preauthorization_form.html",
+                patient=patient,
+                form_data=request.form,
+                today=datetime.now().astimezone().date().isoformat(),
+            )
+
+        preauthorization = DialysisAuthorizationRequest(
+            patient=patient,
+            sha_member_number=member_number,
+            diagnosis=diagnosis,
+            clinical_justification=clinical_justification,
+            requested_sessions=requested_sessions,
+            submission_reference=submission_reference,
+            submitted_at=submitted_at,
+            status="pending",
+            requested_by=session.get(
+                "full_name", session.get("username", "Staff")
+            ),
+        )
+        db.session.add(preauthorization)
+        db.session.flush()
+        audit(
+            "dialysis_preauthorization_requested",
+            "dialysis_authorization_request",
+            preauthorization.id,
+            f"patient_id={patient.id}; sessions={requested_sessions}",
+        )
+        db.session.commit()
+        flash(
+            "Preauthorization request recorded. Submit it to SHA through the usual channel.",
+            "success",
+        )
+        return redirect(
+            url_for(
+                "dialysis_preauthorization",
+                preauthorization_id=preauthorization.id,
+            )
+        )
+
+    return render_template(
+        "dialysis_preauthorization_form.html",
+        patient=patient,
+        form_data={},
+        today=datetime.now().astimezone().date().isoformat(),
+    )
+
+
+@app.route("/renal/preauthorization/<int:preauthorization_id>")
+@login_required(roles=RENAL_VIEW_ROLES)
+def dialysis_preauthorization(preauthorization_id):
+    preauthorization = DialysisAuthorizationRequest.query.get_or_404(
+        preauthorization_id
+    )
+    dialysis_session = dialysis_session_for_preauthorization(preauthorization)
+    return render_template(
+        "dialysis_preauthorization.html",
+        preauthorization=preauthorization,
+        dialysis_session=dialysis_session,
+        can_update=session.get("role") in RENAL_AUTHORIZATION_ROLES,
+        can_create=(
+            session.get("role") in RENAL_CHART_ROLES
+            and preauthorization.status == "approved"
+            and dialysis_session is None
+        ),
+    )
+
+
+@app.route(
+    "/renal/preauthorization/<int:preauthorization_id>/update",
+    methods=["POST"],
+)
+@login_required(roles=RENAL_AUTHORIZATION_ROLES)
+def dialysis_preauthorization_update(preauthorization_id):
+    preauthorization = DialysisAuthorizationRequest.query.get_or_404(
+        preauthorization_id
+    )
+    status = request.form.get("status", "").strip().lower()
+    if status not in {"pending", "approved", "denied"}:
+        flash("Select a valid SHA preauthorization status.", "danger")
+        return redirect(
+            url_for(
+                "dialysis_preauthorization",
+                preauthorization_id=preauthorization.id,
+            )
+        )
+
+    authorization_number = (
+        request.form.get("authorization_number", "").strip()[:100] or None
+    )
+    try:
+        approved_sessions = parse_optional_number(
+            request.form.get("approved_sessions"),
+            "Approved sessions",
+            1,
+            100,
+            integer=True,
+        )
+        valid_from = parse_optional_date_for_authorization(
+            request.form.get("valid_from")
+        )
+        valid_until = parse_optional_date_for_authorization(
+            request.form.get("valid_until")
+        )
+    except ValueError as error:
+        flash(str(error), "danger")
+        return redirect(
+            url_for(
+                "dialysis_preauthorization",
+                preauthorization_id=preauthorization.id,
+            )
+        )
+    if status == "approved" and not authorization_number:
+        flash("Enter the SHA authorization number before marking it approved.", "danger")
+        return redirect(
+            url_for(
+                "dialysis_preauthorization",
+                preauthorization_id=preauthorization.id,
+            )
+        )
+    if valid_from and valid_until and valid_from > valid_until:
+        flash("Authorization end date must be on or after its start date.", "danger")
+        return redirect(
+            url_for(
+                "dialysis_preauthorization",
+                preauthorization_id=preauthorization.id,
+            )
+        )
+
+    preauthorization.status = status
+    preauthorization.authorization_number = authorization_number
+    preauthorization.approved_sessions = approved_sessions
+    preauthorization.valid_from = valid_from
+    preauthorization.valid_until = valid_until
+    preauthorization.response_notes = (
+        request.form.get("response_notes", "").strip()[:5000] or None
+    )
+    preauthorization.reviewed_by = session.get(
+        "full_name", session.get("username", "Staff")
+    )
+    preauthorization.reviewed_at = datetime.utcnow()
+    preauthorization.updated_at = preauthorization.reviewed_at
+    audit(
+        "dialysis_preauthorization_updated",
+        "dialysis_authorization_request",
+        preauthorization.id,
+        f"patient_id={preauthorization.patient_id}; status={status}",
+    )
+    db.session.commit()
+    flash("SHA preauthorization response updated.", "success")
+    return redirect(
+        url_for(
+            "dialysis_preauthorization",
+            preauthorization_id=preauthorization.id,
+        )
+    )
+
+
+@app.route("/patient/<national_id>/dialysis/new", methods=["GET", "POST"])
+@login_required(roles=RENAL_CHART_ROLES)
+def dialysis_session_create(national_id):
+    patient = Patient.query.filter_by(national_id=national_id).first_or_404()
+    preauthorization_id = request.args.get("preauthorization_id", type=int)
+    preauthorization = (
+        DialysisAuthorizationRequest.query.filter_by(
+            id=preauthorization_id, patient_id=patient.id, status="approved"
+        ).first()
+        if preauthorization_id
+        else None
+    )
+    if not preauthorization:
+        abort(404)
+
+    existing_session = dialysis_session_for_preauthorization(preauthorization)
+    if existing_session:
+        flash("This preauthorization already has a dialysis chart.", "info")
+        return redirect(
+            url_for(
+                "dialysis_session",
+                dialysis_session_id=existing_session.id,
+            )
+        )
+
+    active_visit = (
+        Visit.query.filter(
+            Visit.patient_id == patient.id,
+            db.or_(Visit.status != "completed", Visit.status.is_(None)),
+            db.or_(Visit.visit_type != "Inpatient", Visit.visit_type.is_(None)),
+        )
+        .order_by(Visit.started_at.desc())
+        .first()
+    )
+    dialysis_session = DialysisSession(
+        patient=patient,
+        visit=active_visit,
+        preauthorization_id=preauthorization.id,
+        session_date=datetime.now().astimezone().date(),
+        sha_authorization_number=preauthorization.authorization_number,
+        sha_authorization_status="approved",
+        created_by=session.get("full_name", session.get("username", "Staff")),
+    )
+
+    if request.method == "POST":
+        try:
+            dialysis_session.session_date = datetime.strptime(
+                request.form.get("session_date", "").strip(), "%Y-%m-%d"
+            ).date()
+            save_dialysis_chart(dialysis_session, request.form)
+            save_dialysis_observations(dialysis_session, request.form)
+        except ValueError as error:
+            flash(str(error), "danger")
+            return render_template(
+                "dialysis_session.html",
+                patient=patient,
+                dialysis_session=dialysis_session,
+                can_chart=True,
+                can_manage_authorization=False,
+                observation_rows=[],
+                is_new=True,
+            )
+
+        now = datetime.utcnow()
+        dialysis_session.signed_by = session.get(
+            "full_name", session.get("username", "Staff")
+        )
+        dialysis_session.signed_at = now
+        dialysis_session.updated_at = now
+        db.session.add(dialysis_session)
+        db.session.flush()
+        audit(
+            "dialysis_session_created",
+            "dialysis_session",
+            dialysis_session.id,
+            f"patient_id={patient.id}; session_date={dialysis_session.session_date}",
+        )
+        if request.form.get("action") == "finish_session":
+            finish_dialysis_session(dialysis_session)
+        db.session.commit()
+        flash(
+            "Haemodialysis session finished and chart saved."
+            if dialysis_session.status == "completed"
+            else "Haemodialysis chart saved.",
+            "success",
+        )
+        return redirect(
+            url_for("dialysis_session", dialysis_session_id=dialysis_session.id)
+        )
+
+    return render_template(
+        "dialysis_session.html",
+        patient=patient,
+        dialysis_session=dialysis_session,
+        can_chart=True,
+        can_manage_authorization=False,
+        observation_rows=[],
+        is_new=True,
+    )
+
+
+@app.route("/renal/session/<int:dialysis_session_id>")
+@login_required(roles=RENAL_VIEW_ROLES)
+def dialysis_session(dialysis_session_id):
+    dialysis_session = DialysisSession.query.get_or_404(dialysis_session_id)
+    return render_template(
+        "dialysis_session.html",
+        patient=dialysis_session.patient,
+        dialysis_session=dialysis_session,
+        can_chart=session.get("role") in RENAL_CHART_ROLES,
+        can_manage_authorization=(
+            session.get("role") in RENAL_AUTHORIZATION_ROLES
+        ),
+        observation_rows=dialysis_session.observations,
+        is_new=False,
+    )
+
+
+@app.route(
+    "/renal/session/<int:dialysis_session_id>/save",
+    methods=["POST"],
+)
+@login_required(roles=RENAL_CHART_ROLES)
+def dialysis_session_save(dialysis_session_id):
+    dialysis_session = DialysisSession.query.get_or_404(dialysis_session_id)
+    try:
+        dialysis_session.session_date = datetime.strptime(
+            request.form.get("session_date", "").strip(), "%Y-%m-%d"
+        ).date()
+        save_dialysis_chart(dialysis_session, request.form)
+        save_dialysis_observations(dialysis_session, request.form)
+    except ValueError as error:
+        flash(str(error), "danger")
+        return redirect(
+            url_for("dialysis_session", dialysis_session_id=dialysis_session.id)
+        )
+
+    dialysis_session.signed_by = session.get(
+        "full_name", session.get("username", "Staff")
+    )
+    dialysis_session.signed_at = datetime.utcnow()
+    dialysis_session.updated_at = dialysis_session.signed_at
+    if request.form.get("action") == "finish_session":
+        finish_dialysis_session(dialysis_session)
+    audit(
+        "dialysis_session_updated",
+        "dialysis_session",
+        dialysis_session.id,
+        f"patient_id={dialysis_session.patient_id}; "
+        f"session_date={dialysis_session.session_date}",
+    )
+    db.session.commit()
+    flash(
+        "Haemodialysis session finished and chart updated."
+        if dialysis_session.status == "completed"
+        else "Haemodialysis chart updated.",
+        "success",
+    )
+    return redirect(
+        url_for("dialysis_session", dialysis_session_id=dialysis_session.id)
+    )
+
+
+def finish_dialysis_session(dialysis_session):
+    if dialysis_session.status == "completed":
+        return
+    dialysis_session.status = "completed"
+    dialysis_session.completed_at = datetime.utcnow()
+    dialysis_session.completed_by = session.get(
+        "full_name", session.get("username", "Staff")
+    )
+    audit(
+        "dialysis_session_completed",
+        "dialysis_session",
+        dialysis_session.id,
+        f"patient_id={dialysis_session.patient_id}; "
+        f"completed_by={dialysis_session.completed_by}",
+    )
+
+
+@app.route(
+    "/renal/session/<int:dialysis_session_id>/authorization",
+    methods=["POST"],
+)
+@login_required(roles=RENAL_AUTHORIZATION_ROLES)
+def dialysis_authorization_update(dialysis_session_id):
+    dialysis_session = DialysisSession.query.get_or_404(dialysis_session_id)
+    authorization_number = (
+        request.form.get("sha_authorization_number", "").strip()[:100] or None
+    )
+    authorization_status = request.form.get(
+        "sha_authorization_status", ""
+    ).strip().lower()
+    if authorization_status not in {"pending", "approved", "denied"}:
+        flash("Select a valid SHA authorization status.", "danger")
+        return redirect(
+            url_for("dialysis_session", dialysis_session_id=dialysis_session.id)
+        )
+    if authorization_status == "approved" and not authorization_number:
+        flash("Enter the SHA authorization number before marking it approved.", "danger")
+        return redirect(
+            url_for("dialysis_session", dialysis_session_id=dialysis_session.id)
+        )
+
+    dialysis_session.sha_authorization_number = authorization_number
+    dialysis_session.sha_authorization_status = authorization_status
+    dialysis_session.updated_at = datetime.utcnow()
+    audit(
+        "dialysis_authorization_updated",
+        "dialysis_session",
+        dialysis_session.id,
+        f"patient_id={dialysis_session.patient_id}; "
+        f"status={authorization_status}",
+    )
+    db.session.commit()
+    flash("SHA authorization details updated.", "success")
+    return redirect(
+        url_for("dialysis_session", dialysis_session_id=dialysis_session.id)
+    )
+
+
+def save_dialysis_chart(dialysis_session, form):
+    fields = {
+        "physician": 100,
+        "diagnosis": 5000,
+        "access_type": 40,
+        "dialysate_k": 30,
+        "dialysate_na": 30,
+        "dialysate_ca": 30,
+        "dialysate_bicarbonate": 30,
+        "pre_temperature": 30,
+        "pre_bp": 30,
+        "pre_hr": 30,
+        "pre_rr": 30,
+        "pre_current_weight": 30,
+        "pre_dry_weight": 30,
+        "uf_goal": 30,
+        "pre_symptoms": 5000,
+        "duration": 30,
+        "machine_serial": 80,
+        "heparin": 80,
+        "post_temperature": 30,
+        "post_bp": 30,
+        "post_hr": 30,
+        "post_rr": 30,
+        "post_current_weight": 30,
+        "post_dry_weight": 30,
+        "uf_achieved": 30,
+        "post_symptoms": 5000,
+        "medication": 5000,
+        "brief_comments": 5000,
+        "served_by": 100,
+    }
+    for field, max_length in fields.items():
+        setattr(
+            dialysis_session,
+            field,
+            form.get(field, "").strip()[:max_length] or None,
+        )
+    if dialysis_session.access_type not in {
+        None,
+        "Perm catheter",
+        "Temp catheter",
+        "Graft / fistula",
+        "Other",
+    }:
+        raise ValueError("Select a valid dialysis access type.")
+
+
+def parse_optional_date_for_authorization(raw_value):
+    raw_value = (raw_value or "").strip()
+    if not raw_value:
+        return None
+    try:
+        return datetime.strptime(raw_value, "%Y-%m-%d").date()
+    except ValueError as error:
+        raise ValueError("Enter a valid SHA authorization date.") from error
+
+
+def save_dialysis_observations(dialysis_session, form):
+    observation_fields = {
+        "reading_time": "reading_time",
+        "reading_bp": "blood_pressure",
+        "reading_pulse": "pulse",
+        "reading_ap": "arterial_pressure",
+        "reading_vp": "venous_pressure",
+        "reading_bfr": "blood_flow_rate",
+        "reading_dfr": "dialysate_flow_rate",
+        "reading_tmp": "tmp",
+        "reading_ufr": "ufr",
+        "reading_fluids_removed": "fluids_removed",
+        "reading_comments": "comments",
+    }
+    submitted = {
+        field: form.getlist(field) for field in observation_fields
+    }
+    row_count = max((len(values) for values in submitted.values()), default=0)
+    if row_count > 20:
+        raise ValueError("A dialysis chart can contain at most 20 timed readings.")
+
+    dialysis_session.observations.clear()
+    for index in range(row_count):
+        values = {
+            column: submitted[field][index].strip()
+            for field, column in observation_fields.items()
+            if index < len(submitted[field])
+        }
+        if not any(values.values()):
+            continue
+        observation = DialysisObservation(
+            **{
+                column: value[:5000 if column == "comments" else 30] or None
+                for column, value in values.items()
+            }
+        )
+        dialysis_session.observations.append(observation)
 
 
 @app.route("/patient/<national_id>/complete-visit", methods=["POST"])
@@ -2273,10 +3158,17 @@ def theatre_create():
         return redirect(url_for("theatre_list", date=local_date_string(scheduled_at)))
 
     admission_id = request.form.get("admission_id", type=int)
-    admission = Admission.query.filter_by(
-        id=admission_id, patient_id=patient.id, status="admitted"
-    ).first() if admission_id else None
-    if admission_id and not admission:
+    if not admission_id:
+        admission = (
+            Admission.query.filter_by(patient_id=patient.id, status="admitted")
+            .order_by(Admission.admitted_at.desc())
+            .first()
+        )
+    else:
+        admission = Admission.query.filter_by(
+            id=admission_id, patient_id=patient.id, status="admitted"
+        ).first()
+    if admission_id is not None and not admission:
         flash("Select an active admission belonging to this patient.", "danger")
         return redirect(url_for("theatre_list", date=local_date_string(scheduled_at)))
 
@@ -2315,35 +3207,124 @@ def theatre_procedure(procedure_id):
             flash("This procedure is closed and its record cannot be changed.", "warning")
             return redirect(url_for("theatre_procedure", procedure_id=procedure.id))
 
-        procedure.preoperative_diagnosis = (
-            request.form.get("preoperative_diagnosis", "").strip()[:5000] or None
-        )
-        procedure.anesthesia_type = (
-            request.form.get("anesthesia_type", "").strip()[:100] or None
-        )
-        procedure.procedure_performed = (
-            request.form.get("procedure_performed", "").strip()[:10000] or None
-        )
+        staff_name = session.get("full_name") or session.get("username") or "Staff"
+        now = datetime.utcnow()
+
+        # Consent (detailed)
+        procedure.consent_obtained = request.form.get("consent_obtained") == "1"
+        procedure.consent_procedure_description = request.form.get("consent_procedure_description", "").strip()[:5000] or None
+        procedure.consent_specific_risks = request.form.get("consent_specific_risks", "").strip()[:5000] or None
+        procedure.consent_given_by = request.form.get("consent_given_by", "").strip()[:120] or None
+        procedure.consent_relationship = request.form.get("consent_relationship", "").strip()[:40] or None
+        procedure.consent_explained_by = request.form.get("consent_explained_by", "").strip()[:100] or None
+        procedure.consent_witness_name = request.form.get("consent_witness_name", "").strip()[:100] or None
+        procedure.consent_notes = request.form.get("consent_notes", "").strip()[:5000] or None
+        if procedure.consent_obtained and not procedure.consented_at:
+            procedure.consented_at = now
+            procedure.consented_by_staff = staff_name
+
+        # Pre-anaesthetic review
+        procedure.pre_anaesth_presenting_complaints = request.form.get("pre_anaesth_presenting_complaints", "").strip()[:5000] or None
+        procedure.pre_anaesth_pmsh = request.form.get("pre_anaesth_pmsh", "").strip()[:5000] or None
+        procedure.pre_anaesth_diagnosis = request.form.get("pre_anaesth_diagnosis", "").strip()[:5000] or None
+        procedure.pre_anaesth_operation = request.form.get("pre_anaesth_operation", "").strip()[:5000] or None
+        procedure.pre_anaesth_oe = request.form.get("pre_anaesth_oe", "").strip()[:5000] or None
+        procedure.pre_anaesth_systemic_exam = request.form.get("pre_anaesth_systemic_exam", "").strip()[:5000] or None
+        procedure.pre_anaesth_impression = request.form.get("pre_anaesth_impression", "").strip()[:5000] or None
+        procedure.pre_anaesth_plan = request.form.get("pre_anaesth_plan", "").strip()[:5000] or None
+        if any([procedure.pre_anaesth_presenting_complaints, procedure.pre_anaesth_pmsh, procedure.pre_anaesth_plan]) and not procedure.pre_anaesthesia_reviewed_by:
+            procedure.pre_anaesthesia_reviewed_by = staff_name
+            procedure.pre_anaesthesia_at = now
+
+        # Pre-operative theatre checklist
+        procedure.checklist_id_card = request.form.get("checklist_id_card") == "1"
+        procedure.checklist_starved = request.form.get("checklist_starved") == "1"
+        procedure.checklist_shaved = request.form.get("checklist_shaved") == "1"
+        procedure.checklist_consent = request.form.get("checklist_consent") == "1"
+        procedure.checklist_catheterized = request.form.get("checklist_catheterized") == "1"
+        procedure.checklist_group_match = request.form.get("checklist_group_match") == "1"
+        procedure.checklist_iv_line = request.form.get("checklist_iv_line") == "1"
+        procedure.checklist_dentures = request.form.get("checklist_dentures") == "1"
+        procedure.checklist_ng_tube = request.form.get("checklist_ng_tube") == "1"
+        procedure.checklist_hb = request.form.get("checklist_hb") == "1"
+        procedure.checklist_preop_obs = request.form.get("checklist_preop_obs") == "1"
+        procedure.preop_temperature = request.form.get("preop_temperature", "").strip()[:20] or None
+        procedure.preop_pulse = request.form.get("preop_pulse", "").strip()[:20] or None
+        procedure.preop_bp = request.form.get("preop_bp", "").strip()[:20] or None
+        procedure.preop_respiration = request.form.get("preop_respiration", "").strip()[:20] or None
+        procedure.premed_notes = request.form.get("premed_notes", "").strip()[:5000] or None
+        if not procedure.preop_theatre_completed_by:
+            procedure.preop_theatre_completed_by = staff_name
+
+        # Operation notes
+        procedure.preoperative_diagnosis = request.form.get("preoperative_diagnosis", "").strip()[:5000] or None
+        procedure.incision = request.form.get("incision", "").strip()[:255] or None
+        procedure.scrub_nurse = request.form.get("scrub_nurse", "").strip()[:100] or None
+        procedure.operation_time_from = request.form.get("operation_time_from", "").strip()[:20] or None
+        procedure.operation_time_to = request.form.get("operation_time_to", "").strip()[:20] or None
+        procedure.anesthesia_type = request.form.get("anesthesia_type", "").strip()[:100] or None
+        procedure.procedure_performed = request.form.get("procedure_performed", "").strip()[:10000] or None
         procedure.findings = request.form.get("findings", "").strip()[:10000] or None
-        procedure.anesthesia_notes = (
-            request.form.get("anesthesia_notes", "").strip()[:10000] or None
-        )
-        procedure.complications = (
-            request.form.get("complications", "").strip()[:5000] or None
-        )
-        procedure.estimated_blood_loss = (
-            request.form.get("estimated_blood_loss", "").strip()[:80] or None
-        )
-        procedure.recovery_notes = (
-            request.form.get("recovery_notes", "").strip()[:10000] or None
-        )
-        procedure.postoperative_plan = (
-            request.form.get("postoperative_plan", "").strip()[:10000] or None
-        )
+        procedure.anesthesia_notes = request.form.get("anesthesia_notes", "").strip()[:10000] or None
+        procedure.complications = request.form.get("complications", "").strip()[:5000] or None
+        procedure.estimated_blood_loss = request.form.get("estimated_blood_loss", "").strip()[:80] or None
+        procedure.recovery_notes = request.form.get("recovery_notes", "").strip()[:10000] or None
+        procedure.postoperative_plan = request.form.get("postoperative_plan", "").strip()[:10000] or None
+        procedure.post_op_diagnosis = request.form.get("post_op_diagnosis", "").strip()[:5000] or None
+        procedure.outcome = request.form.get("outcome", "").strip()[:120] or None
+        procedure.anaesth_induction = request.form.get("anaesth_induction", "").strip()[:255] or None
+        procedure.anaesth_airway = request.form.get("anaesth_airway", "").strip()[:255] or None
+        procedure.anaesth_premedication = request.form.get("anaesth_premedication", "").strip()[:255] or None
+        procedure.anaesth_result = request.form.get("anaesth_result", "").strip()[:5000] or None
+        procedure.consumables_notes = request.form.get("consumables_notes", "").strip()[:5000] or None
+        procedure.post_op_diagnosis = request.form.get("post_op_diagnosis", "").strip()[:5000] or None
+        procedure.outcome = request.form.get("outcome", "").strip()[:120] or None
+        procedure.anaesth_induction = request.form.get("anaesth_induction", "").strip()[:255] or None
+        procedure.anaesth_airway = request.form.get("anaesth_airway", "").strip()[:255] or None
+        procedure.anaesth_premedication = request.form.get("anaesth_premedication", "").strip()[:255] or None
+        procedure.anaesth_result = request.form.get("anaesth_result", "").strip()[:5000] or None
+        procedure.consumables_notes = request.form.get("consumables_notes", "").strip()[:5000] or None
+
         action = request.form.get("action", "save")
-        if action not in {"save", "start", "complete"}:
+        if action not in {"save", "start", "complete", "upload"}:
             flash("Select a valid theatre record action.", "danger")
             return redirect(url_for("theatre_procedure", procedure_id=procedure.id))
+
+        if action == "upload":
+            files = request.files.getlist("attachments")
+            attachment_type = request.form.get("attachment_type", "other").strip() or "other"
+            if attachment_type not in {"anaesthetic_record", "consumables", "other"}:
+                attachment_type = "other"
+            saved = 0
+            for f in files:
+                if not f or not f.filename:
+                    continue
+                original = secure_filename(f.filename)
+                if "." not in original:
+                    continue
+                ext = original.rsplit(".", 1)[1].lower()
+                if ext not in ALLOWED_IMAGE_EXTENSIONS:
+                    flash(f"Skipped unsupported file: {f.filename}", "warning")
+                    continue
+                stored_name = f"{uuid.uuid4().hex}.{ext}"
+                f.save(os.path.join(THEATRE_UPLOAD_FOLDER, stored_name))
+                att = TheatreAttachment(
+                    procedure_id=procedure.id,
+                    filename=stored_name,
+                    original_name=original,
+                    attachment_type=attachment_type,
+                    uploaded_by=staff_name,
+                )
+                db.session.add(att)
+                saved += 1
+            if saved:
+                audit("theatre_attachment_uploaded", "theatre_procedure", procedure.id, f"count={saved}; type={attachment_type}")
+                db.session.commit()
+                flash(f"{saved} file(s) attached.", "success")
+            else:
+                flash("No valid files were uploaded.", "warning")
+            return redirect(url_for("theatre_procedure", procedure_id=procedure.id))
+
         if action == "complete":
             if not procedure.preoperative_diagnosis or not procedure.procedure_performed or not procedure.findings:
                 flash(
@@ -3751,6 +4732,9 @@ def inpatient_discharge(admission_id):
         return redirect(url_for("inpatient_list"))
 
     discharge_diagnosis = request.form.get("discharge_diagnosis", "").strip()
+    discharge_diagnosis_code = (
+        request.form.get("discharge_diagnosis_code", "").strip()
+    )
     hospital_course = request.form.get("hospital_course", "").strip()
     discharge_condition = request.form.get("discharge_condition", "").strip()
     action = request.form.get("action", "finalize")
@@ -3759,6 +4743,25 @@ def inpatient_discharge(admission_id):
         return redirect(url_for("inpatient_detail", admission_id=adm.id))
     if action == "finalize" and (not discharge_diagnosis or not hospital_course):
         flash("Enter the final diagnosis and hospital course before discharge.", "danger")
+        return redirect(url_for("inpatient_detail", admission_id=adm.id))
+    if discharge_diagnosis or discharge_diagnosis_code:
+        selected_diagnosis = next(
+            (
+                row
+                for row in load_icd11()
+                if row["code"].casefold() == discharge_diagnosis_code.casefold()
+                and row["text"] == discharge_diagnosis
+            ),
+            None,
+        )
+        if not selected_diagnosis:
+            flash(
+                "Select the final diagnosis from the ICD-11 search results.",
+                "danger",
+            )
+            return redirect(url_for("inpatient_detail", admission_id=adm.id))
+    elif action == "finalize":
+        flash("Select an ICD-11 final diagnosis before discharge.", "danger")
         return redirect(url_for("inpatient_detail", admission_id=adm.id))
     if discharge_condition and discharge_condition not in {
         "Stable",
@@ -3794,6 +4797,7 @@ def inpatient_discharge(admission_id):
     adm.admitted_at = admitted_at
     adm.discharge_summary_discharge_at = discharge_summary_discharge_at
     adm.discharge_diagnosis = discharge_diagnosis[:255]
+    adm.discharge_diagnosis_code = discharge_diagnosis_code[:40] or None
     adm.hospital_course = hospital_course[:10000]
     adm.discharge_condition = discharge_condition
     adm.discharge_medications = (
@@ -3941,6 +4945,13 @@ def imaging_file(filename):
     # Prevent path traversal
     safe = os.path.basename(filename)
     return send_from_directory(UPLOAD_FOLDER, safe)
+
+
+@app.route("/theatre/file/<path:filename>")
+@login_required(roles=THEATRE_VIEW_ROLES)
+def theatre_file(filename):
+    safe = os.path.basename(filename)
+    return send_from_directory(THEATRE_UPLOAD_FOLDER, safe)
 
 
 @app.route("/imaging/<int:study_id>/print")

@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+
+{% block title %}SHA Preauthorization Request | St Gabriel Hospital{% endblock %}
+
+{% block content %}
+  <div class="page-hero page-hero-teal mb-4">
+    <div class="page-hero-content">
+      <div>
+        <div class="eyebrow">Outpatient renal service · SHA preauthorization</div>
+        <h3 class="mb-1 dashboard-title">{{ preauthorization.patient.full_name }}</h3>
+        <p class="mb-0 hero-text">Patient ID {{ preauthorization.patient.national_id }} · Request #{{ preauthorization.id }}</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 hero-actions d-print-none">
+        <a class="btn btn-light btn-sm" href="{{ url_for('renal_dashboard') }}">Back to Renal</a>
+        <a class="btn btn-light btn-sm" href="{{ url_for('patient_card', national_id=preauthorization.patient.national_id) }}">Patient card</a>
+        {% if can_create %}
+        <a class="btn btn-primary btn-sm" href="{{ url_for('dialysis_session_create', national_id=preauthorization.patient.national_id, preauthorization_id=preauthorization.id) }}">Start dialysis</a>
+        {% elif dialysis_session %}
+        <a class="btn btn-outline-success btn-sm" href="{{ url_for('dialysis_session', dialysis_session_id=dialysis_session.id) }}">Open dialysis chart</a>
+        {% endif %}
+        <button class="btn btn-primary btn-sm" type="button" onclick="window.print()">Print request</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="alert alert-info d-print-none">
+    This is an internal request record. Submit it to SHA through the hospital's existing channel; this app does not transmit or verify it.
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <strong>Request details</strong>
+      <span class="badge {% if preauthorization.status == 'approved' %}text-bg-success{% elif preauthorization.status == 'denied' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ preauthorization.status|title }}</span>
+    </div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-md-4"><span class="text-muted small d-block">SHA member number</span>{{ preauthorization.sha_member_number or 'Not recorded' }}</div>
+        <div class="col-md-4"><span class="text-muted small d-block">Request date</span>{{ preauthorization.submitted_at.strftime('%d %b %Y') }}</div>
+        <div class="col-md-4"><span class="text-muted small d-block">Sessions requested</span>{{ preauthorization.requested_sessions }}</div>
+        <div class="col-md-6"><span class="text-muted small d-block">Submission/reference number</span>{{ preauthorization.submission_reference or 'Not recorded' }}</div>
+        <div class="col-md-6"><span class="text-muted small d-block">Requested by</span>{{ preauthorization.requested_by or 'Not recorded' }}</div>
+        <div class="col-12"><span class="text-muted small d-block">Diagnosis</span><div class="white-space-pre">{{ preauthorization.diagnosis }}</div></div>
+        <div class="col-12"><span class="text-muted small d-block">Clinical justification</span><div class="white-space-pre">{{ preauthorization.clinical_justification }}</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-header"><strong>SHA response</strong></div>
+    <div class="card-body">
+      {% if can_update %}
+      <form method="post" action="{{ url_for('dialysis_preauthorization_update', preauthorization_id=preauthorization.id) }}" class="row g-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-4">
+          <label class="form-label" for="status">Status</label>
+          <select class="form-select" id="status" name="status" required>
+            <option value="pending" {% if preauthorization.status == 'pending' %}selected{% endif %}>Pending</option>
+            <option value="approved" {% if preauthorization.status == 'approved' %}selected{% endif %}>Approved</option>
+            <option value="denied" {% if preauthorization.status == 'denied' %}selected{% endif %}>Denied</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="authorization-number">Authorization number</label>
+          <input class="form-control" id="authorization-number" name="authorization_number" maxlength="100" value="{{ preauthorization.authorization_number or '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="approved-sessions">Sessions approved</label>
+          <input class="form-control" id="approved-sessions" type="number" name="approved_sessions" min="1" max="100" value="{{ preauthorization.approved_sessions or '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="valid-from">Authorization valid from</label>
+          <input class="form-control" id="valid-from" type="date" name="valid_from" value="{{ preauthorization.valid_from.isoformat() if preauthorization.valid_from else '' }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="valid-until">Authorization valid until</label>
+          <input class="form-control" id="valid-until" type="date" name="valid_until" value="{{ preauthorization.valid_until.isoformat() if preauthorization.valid_until else '' }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label" for="response-notes">Response notes</label>
+          <textarea class="form-control" id="response-notes" name="response_notes" rows="3" maxlength="5000">{{ preauthorization.response_notes or '' }}</textarea>
+        </div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Save SHA response</button></div>
+      </form>
+      {% else %}
+      <div class="row g-3">
+        <div class="col-md-4"><span class="text-muted small d-block">Authorization number</span>{{ preauthorization.authorization_number or 'Not recorded' }}</div>
+        <div class="col-md-4"><span class="text-muted small d-block">Sessions approved</span>{{ preauthorization.approved_sessions or 'Not recorded' }}</div>
+        <div class="col-md-4"><span class="text-muted small d-block">Validity</span>{% if preauthorization.valid_from or preauthorization.valid_until %}{{ preauthorization.valid_from or '—' }} to {{ preauthorization.valid_until or '—' }}{% else %}Not recorded{% endif %}</div>
+        <div class="col-12"><span class="text-muted small d-block">Response notes</span><div class="white-space-pre">{{ preauthorization.response_notes or 'Not recorded' }}</div></div>
+      </div>
+      {% endif %}
+      {% if preauthorization.reviewed_at %}
+      <div class="border-top mt-3 pt-3 small text-muted">Updated by {{ preauthorization.reviewed_by or 'Staff' }} on {{ preauthorization.reviewed_at.strftime('%d %b %Y at %H:%M') }}</div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
