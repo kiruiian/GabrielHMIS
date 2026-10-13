@@ -4961,7 +4961,98 @@ def imaging_report_print(study_id):
     return render_template(
         "imaging_report_print.html", study=study, patient=study.patient
     )
+@app.route("/reports/moh")
+@login_required(roles={"admin", "records", "doctor"})
+def moh_reports():
+    from datetime import date
+    from calendar import monthrange
 
+    today = date.today()
+    try:
+        year = int(request.args.get("year", today.year))
+        month = int(request.args.get("month", today.month))
+    except ValueError:
+        year, month = today.year, today.month
+    if not (1 <= month <= 12):
+        month = today.month
+
+    start = datetime(year, month, 1)
+    _, last_day = monthrange(year, month)
+    end = datetime(year, month, last_day, 23, 59, 59)
+
+    # 705A / 705B
+    diagnoses = (
+        db.session.query(Diagnosis, Patient)
+        .join(Patient, Diagnosis.patient_id == Patient.id)
+        .filter(Diagnosis.diagnosed_at >= start, Diagnosis.diagnosed_at <= end)
+        .all()
+    )
+    under5 = {}
+    over5 = {}
+    for diag, patient in diagnoses:
+        age = patient.age or 0
+        key = (diag.icd_code or "", diag.diagnosis_text or "")
+        bucket = under5 if age < 5 else over5
+        bucket[key] = bucket.get(key, 0) + 1
+
+    def sorted_diag(d):
+        return sorted(
+            [{"code": k[0], "name": k[1], "count": v} for k, v in d.items()],
+            key=lambda x: -x["count"],
+        )
+
+    # 717
+    opd_visits = Visit.query.filter(Visit.started_at >= start, Visit.started_at <= end).count()
+    admissions = Admission.query.filter(Admission.admitted_at >= start, Admission.admitted_at <= end).count()
+    discharges = Admission.query.filter(Admission.discharged_at >= start, Admission.discharged_at <= end).count()
+    theatre_done = TheatreProcedure.query.filter(
+        TheatreProcedure.status == "completed",
+        TheatreProcedure.completed_at >= start,
+        TheatreProcedure.completed_at <= end,
+    ).count()
+    dialysis_sessions = DialysisSession.query.filter(
+        DialysisSession.session_date >= start.date(),
+        DialysisSession.session_date <= end.date(),
+    ).count()
+
+    # 706
+    lab_orders = []
+    try:
+        LabOrder = app.config.get("LAB_ORDER_MODEL")
+        if LabOrder:
+            lab_orders = LabOrder.query.filter(
+                LabOrder.created_at >= start,
+                LabOrder.created_at <= end,
+            ).all()
+    except Exception:
+        pass
+
+    lab_counts = {}
+    for order in lab_orders:
+        name = getattr(order, "test_name", None) or "Unknown"
+        lab_counts[name] = lab_counts.get(name, 0) + 1
+
+    lab_summary = sorted(
+        [{"name": k, "count": v} for k, v in lab_counts.items()],
+        key=lambda x: -x["count"],
+    )
+
+    return render_template(
+        "moh_reports.html",
+        year=year,
+        month=month,
+        under5=sorted_diag(under5),
+        over5=sorted_diag(over5),
+        under5_total=sum(under5.values()),
+        over5_total=sum(over5.values()),
+        opd_visits=opd_visits,
+        admissions=admissions,
+        discharges=discharges,
+        theatre_done=theatre_done,
+        dialysis_sessions=dialysis_sessions,
+        lab_summary=lab_summary,
+        lab_total=sum(lab_counts.values()),
+    )
 WARDS = [
     ('Male General', 'General', 'MG', 13),
     ('Female General', 'General', 'FG', 6),

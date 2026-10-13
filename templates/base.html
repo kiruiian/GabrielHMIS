@@ -37,6 +37,12 @@
         {% if session.get('role') in ['doctor', 'nurse', 'receptionist', 'records', 'admin'] %}
           <li class="nav-item"><a class="nav-link{% if request.endpoint in ['theatre_list', 'theatre_procedure', 'theatre_create', 'theatre_cancel'] %} active{% endif %}" {% if request.endpoint in ['theatre_list', 'theatre_procedure', 'theatre_create', 'theatre_cancel'] %}aria-current="page"{% endif %} href="{{ url_for('theatre_list') }}">Theatre</a></li>
         {% endif %}
+        {% if session.get('role') in ['admin', 'records', 'doctor'] %}
+          <li class="nav-item">
+            <a class="nav-link{% if request.endpoint == 'moh_reports' %} active{% endif %}"
+            href="{{ url_for('moh_reports') }}">Reports</a>
+          </li>
+        {% endif %}
         {% if session.get('role') in ['nurse', 'doctor', 'records', 'accounts', 'receptionist', 'admin'] %}
           <li class="nav-item"><a class="nav-link{% if request.endpoint in ['renal_dashboard', 'dialysis_session', 'dialysis_session_create'] %} active{% endif %}" {% if request.endpoint in ['renal_dashboard', 'dialysis_session', 'dialysis_session_create'] %}aria-current="page"{% endif %} href="{{ url_for('renal_dashboard') }}">Renal</a></li>
         {% endif %}

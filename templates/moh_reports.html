@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+
+{% block title %}MOH Reports | St Gabriel Hospital{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h3 class="mb-1">MOH Reports</h3>
+    <p class="text-muted mb-0"></p>
+  </div>
+  <button class="btn btn-outline-primary d-print-none" onclick="window.print()">Print</button>
+</div>
+
+<form method="get" class="row g-2 align-items-end mb-4 d-print-none">
+  <div class="col-auto">
+    <label class="form-label">Year</label>
+    <input type="number" name="year" class="form-control" value="{{ year }}">
+  </div>
+  <div class="col-auto">
+    <label class="form-label">Month</label>
+    <select name="month" class="form-select">
+      {% for m in range(1, 13) %}
+      <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ '%02d'|format(m) }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-primary">Show</button>
+  </div>
+</form>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>MoH 717 — Service Workload</strong></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-3"><div class="text-muted small">OPD visits</div><div class="fs-4">{{ opd_visits }}</div></div>
+      <div class="col-md-3"><div class="text-muted small">Admissions</div><div class="fs-4">{{ admissions }}</div></div>
+      <div class="col-md-3"><div class="text-muted small">Discharges</div><div class="fs-4">{{ discharges }}</div></div>
+      <div class="col-md-3"><div class="text-muted small">Theatre (completed)</div><div class="fs-4">{{ theatre_done }}</div></div>
+      <div class="col-md-3"><div class="text-muted small">Dialysis sessions</div><div class="fs-4">{{ dialysis_sessions }}</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>MoH 706 — Laboratory summary</strong></div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Test</th><th class="text-end">Count</th></tr></thead>
+      <tbody>
+        {% for row in lab_summary %}
+        <tr><td>{{ row.name }}</td><td class="text-end">{{ row.count }}</td></tr>
+        {% else %}
+        <tr><td colspan="2" class="text-muted">No lab orders this month.</td></tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><th>Total</th><th class="text-end">{{ lab_total }}</th></tr></tfoot>
+    </table>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>MoH 705A — &lt; 5 years</strong></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Code</th><th>Diagnosis</th><th class="text-end">Count</th></tr></thead>
+          <tbody>
+            {% for row in under5 %}
+            <tr><td>{{ row.code }}</td><td>{{ row.name }}</td><td class="text-end">{{ row.count }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="text-muted">None</td></tr>
+            {% endfor %}
+          </tbody>
+          <tfoot><tr><th colspan="2">Total</th><th class="text-end">{{ under5_total }}</th></tr></tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>MoH 705B — ≥ 5 years</strong></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Code</th><th>Diagnosis</th><th class="text-end">Count</th></tr></thead>
+          <tbody>
+            {% for row in over5 %}
+            <tr><td>{{ row.code }}</td><td>{{ row.name }}</td><td class="text-end">{{ row.count }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="text-muted">None</td></tr>
+            {% endfor %}
+          </tbody>
+          <tfoot><tr><th colspan="2">Total</th><th class="text-end">{{ over5_total }}</th></tr></tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
