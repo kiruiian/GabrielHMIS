@@ -25,6 +25,11 @@
                         <span class="mx-2">•</span>
                         <span><strong>Gender:</strong> {{ patient.gender }}</span>
                     </p>
+                {% if patient.allergies_plain %}
+                    <div class="alert alert-danger py-2 mb-2">
+                    <strong>Allergies:</strong> {{ patient.allergies_plain }}
+                    </div>
+                {% endif %}
                     {% if active_visit %}
                     <div class="visit-summary">
                         <span class="visit-summary-label">Active visit</span>
@@ -508,7 +513,7 @@
                     <div class="card mb-3">
                         <div class="card-body">
                             <div class="text-muted small mb-2">{{ n.timestamp.strftime('%d %b %Y %H:%M') }} by {{ n.doctor }}</div>
-                            <div style="white-space: pre-wrap;">{{ n.note }}</div>
+                            <div style="white-space: pre-wrap;">{{ n.note_plain }}</div>
                         </div>
                     </div>
                     {% endfor %}

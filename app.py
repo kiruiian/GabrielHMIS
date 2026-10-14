@@ -29,6 +29,26 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 from lab_module import register_lab_module
+from cryptography.fernet import Fernet
+
+def get_fernet():
+    key = os.getenv("ENCRYPTION_KEY")
+    if not key:
+        raise RuntimeError("ENCRYPTION_KEY is not set in .env")
+    return Fernet(key.encode())
+
+def encrypt_text(value):
+    if not value:
+        return None
+    return get_fernet().encrypt(value.encode()).decode()
+
+def decrypt_text(value):
+    if not value:
+        return None
+    try:
+        return get_fernet().decrypt(value.encode()).decode()
+    except Exception:
+        return value
 
 load_dotenv()
 
@@ -52,13 +72,14 @@ if not secret_key:
 
 app.config["SECRET_KEY"] = secret_key
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-    "DATABASE_URL", f"sqlite:///{os.path.join(app.instance_path, 'hmis.db')}"
+    "DATABASE_URL",
+    f"sqlite:///{os.path.join(app.instance_path, 'hmis.db')}"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = env_flag("SESSION_COOKIE_SECURE", is_production)
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=10)
 
 db = SQLAlchemy(app)
 
@@ -353,6 +374,7 @@ class Patient(db.Model):
     gender = db.Column(db.String(20))
     phone = db.Column(db.String(20))
     address = db.Column(db.Text)
+    allergies = db.Column(db.Text)
     patient_image = db.Column(db.String(255))
     visit_type = db.Column(db.String(20), default="New Visit")
     registration_date = db.Column(db.DateTime, default=datetime.utcnow)
@@ -379,6 +401,10 @@ class Patient(db.Model):
             parts = self.name.split(" ")
             return " ".join(parts[1:]) if len(parts) > 1 else ""
         return ""
+
+    @property
+    def allergies_plain(self):
+        return decrypt_text(self.allergies)
 
 
 class Visit(db.Model):
@@ -703,6 +729,9 @@ class ClinicalNote(db.Model):
         "Patient",
         backref=db.backref("clinical_notes", lazy=True, order_by=timestamp.desc()),
     )
+    @property
+    def note_plain(self):
+        return decrypt_text(self.note)
 
 
 class Consultation(db.Model):
@@ -974,6 +1003,10 @@ def validate_csrf_token():
     flash("Your form expired or could not be verified. Please try again.", "danger")
     return redirect(request.referrer or url_for("login"))
 
+@app.before_request
+def refresh_session():
+    session.permanent = True
+    session.modified = True
 
 def audit(action, target_type, target_id, details=None):
     db.session.add(
@@ -1018,8 +1051,9 @@ def parse_optional_date(raw_value):
         raise ValueError("Please enter a valid prescription date.") from error
 
 
-
 def ensure_schema():
+    if not app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
+        return
     with app.app_context():
         db.create_all()
         visit_columns = {
@@ -1054,6 +1088,7 @@ def ensure_schema():
             "created_by": "ALTER TABLE patient_follow_up ADD COLUMN created_by VARCHAR(100)",
             "created_at": "ALTER TABLE patient_follow_up ADD COLUMN created_at DATETIME",
             "completed_at": "ALTER TABLE patient_follow_up ADD COLUMN completed_at DATETIME",
+            #"allergies": "ALTER TABLE patient ADD COLUMN allergies TEXT",
         }
         for column, migration in follow_up_migrations.items():
             if column not in patient_follow_up_columns:
@@ -1467,7 +1502,7 @@ def patient_card(national_id):
 
             new_note = ClinicalNote(
                 patient_id=patient.id,
-                note=note,
+                note=encrypt_text(note),
                 doctor=session.get("full_name", "Staff"),
             )
             db.session.add(new_note)
@@ -4243,6 +4278,7 @@ def edit_patient(national_id):
         patient.gender = request.form.get("gender", "").strip()
         patient.phone = request.form.get("phone", "").strip()
         patient.address = request.form.get("address", "")
+        patient.allergies = encrypt_text(request.form.get("allergies", "").strip() or None)
         audit("patient_updated", "patient", patient.id)
         db.session.commit()
         flash("Patient updated successfully.", "success")
