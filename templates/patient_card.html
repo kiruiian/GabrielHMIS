@@ -531,10 +531,27 @@
                     {% for v in visit_list %}
                     <div class="card mb-3">
                         <div class="card-header d-flex justify-content-between">
-                            <strong>{{ v.started_at.strftime('%d %b %Y %H:%M') }}</strong>
-                            <span class="badge bg-secondary">{{ v.visit_type or 'Visit' }} · {{ v.status or '—' }}</span>
+                            <div>
+                                <strong>{{ v.started_at.strftime('%d %b %Y %H:%M') }}</strong>
+                                <span class="badge bg-secondary ms-2">{{ v.visit_type or 'Visit' }} · {{ v.status or '—' }}</span>
+                            </div>
+                            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('treatment_report', national_id=patient.national_id, visit_id=v.id) }}" target="_blank" rel="noopener">Print treatment report</a>
                         </div>
                         <div class="card-body">
+                            <div class="mb-2">
+                                <strong>Clinical notes</strong>
+                                {% set note_list = (visit_notes or {}).get(v.id, []) %}
+                                {% if note_list %}
+                                    {% for note in note_list %}
+                                    <div class="border rounded p-2 mt-2">
+                                        <div class="text-muted small mb-1">{{ note.timestamp.strftime('%d %b %Y %H:%M') }} by {{ note.doctor or '—' }}</div>
+                                        <div style="white-space: pre-wrap;">{{ note.note_plain }}</div>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="text-muted small">No clinical notes for this visit.</div>
+                                {% endif %}
+                            </div>
                             <div class="mb-2">
                                 <strong>Diagnosis</strong>
                                 {% set dx_list = (visit_diagnoses or {}).get(v.id, []) %}

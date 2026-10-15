@@ -1,3 +1,5 @@
+import csv
+import io
 import os
 import dotenv
 import secrets
@@ -20,10 +22,11 @@ from flask import (
     flash,
     jsonify,
     session,
+    Response,
     send_from_directory,
 )
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_, text
+from sqlalchemy import inspect, or_, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -721,6 +724,7 @@ class VitalSigns(db.Model):
 class ClinicalNote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    visit_id = db.Column(db.Integer, db.ForeignKey("visit.id"))
     note = db.Column(db.Text, nullable=False)
     doctor = db.Column(db.String(100))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
@@ -728,6 +732,9 @@ class ClinicalNote(db.Model):
     patient = db.relationship(
         "Patient",
         backref=db.backref("clinical_notes", lazy=True, order_by=timestamp.desc()),
+    )
+    visit = db.relationship(
+        "Visit", backref=db.backref("clinical_notes", lazy=True)
     )
     @property
     def note_plain(self):
@@ -1053,6 +1060,21 @@ def parse_optional_date(raw_value):
 
 def ensure_schema():
     if not app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite"):
+        with app.app_context():
+            inspector = inspect(db.engine)
+            if inspector.has_table("clinical_note"):
+                clinical_note_columns = {
+                    column["name"]
+                    for column in inspector.get_columns("clinical_note")
+                }
+                if "visit_id" not in clinical_note_columns:
+                    db.session.execute(
+                        text(
+                            "ALTER TABLE clinical_note ADD COLUMN IF NOT EXISTS "
+                            "visit_id INTEGER REFERENCES visit(id)"
+                        )
+                    )
+                    db.session.commit()
         return
     with app.app_context():
         db.create_all()
@@ -1072,6 +1094,17 @@ def ensure_schema():
         if "consultation_amount" not in visit_columns:
             db.session.execute(
                 text("ALTER TABLE visit ADD COLUMN consultation_amount NUMERIC(10, 2)")
+            )
+        clinical_note_columns = {
+            row[1]
+            for row in db.session.execute(text("PRAGMA table_info(clinical_note)"))
+        }
+        if "visit_id" not in clinical_note_columns:
+            db.session.execute(
+                text(
+                    "ALTER TABLE clinical_note ADD COLUMN visit_id "
+                    "INTEGER REFERENCES visit(id)"
+                )
             )
 
         patient_follow_up_columns = {
@@ -1500,8 +1533,17 @@ def patient_card(national_id):
                 )
                 return redirect(url_for("patient_card", national_id=national_id))
 
+            active_visit = (
+                Visit.query.filter(
+                    Visit.patient_id == patient.id,
+                    db.or_(Visit.status != "completed", Visit.status.is_(None)),
+                )
+                .order_by(Visit.started_at.desc())
+                .first()
+            )
             new_note = ClinicalNote(
                 patient_id=patient.id,
+                visit_id=active_visit.id if active_visit else None,
                 note=encrypt_text(note),
                 doctor=session.get("full_name", "Staff"),
             )
@@ -2117,11 +2159,17 @@ def patient_card(national_id):
     )
     visit_prescriptions = {}
     visit_diagnoses = {}
+    visit_notes = {}
     for v in visits:
         visit_diagnoses[v.id] = [d for d in diagnoses if d.visit_id == v.id]
         visit_prescriptions[v.id] = (
             Prescription.query.filter_by(visit_id=v.id)
             .order_by(Prescription.prescribed_at.asc())
+            .all()
+        )
+        visit_notes[v.id] = (
+            ClinicalNote.query.filter_by(patient_id=patient.id, visit_id=v.id)
+            .order_by(ClinicalNote.timestamp.asc())
             .all()
         )
 
@@ -2143,10 +2191,41 @@ def patient_card(national_id):
         visits=visits,
         visit_diagnoses=visit_diagnoses,
         visit_prescriptions=visit_prescriptions,
+        visit_notes=visit_notes,
         current_admission=current_admission,
         dialysis_sessions=dialysis_sessions,
         has_dialysis_history=has_dialysis_history,
         common_icd10=COMMON_ICD10,
+    )
+
+
+@app.route("/patient/<national_id>/visits/<int:visit_id>/treatment-report")
+@login_required(roles=CLINICAL_READ_ROLES)
+def treatment_report(national_id, visit_id):
+    patient = Patient.query.filter_by(national_id=national_id).first_or_404()
+    visit = Visit.query.filter_by(id=visit_id, patient_id=patient.id).first_or_404()
+    notes = (
+        ClinicalNote.query.filter_by(patient_id=patient.id, visit_id=visit.id)
+        .order_by(ClinicalNote.timestamp.asc())
+        .all()
+    )
+    diagnoses = (
+        Diagnosis.query.filter_by(patient_id=patient.id, visit_id=visit.id)
+        .order_by(Diagnosis.diagnosed_at.asc())
+        .all()
+    )
+    prescriptions = (
+        Prescription.query.filter_by(patient_id=patient.id, visit_id=visit.id)
+        .order_by(Prescription.prescribed_at.asc())
+        .all()
+    )
+    return render_template(
+        "treatment_report.html",
+        patient=patient,
+        visit=visit,
+        notes=notes,
+        diagnoses=diagnoses,
+        prescriptions=prescriptions,
     )
 
 
@@ -4997,6 +5076,128 @@ def imaging_report_print(study_id):
     return render_template(
         "imaging_report_print.html", study=study, patient=study.patient
     )
+
+
+def get_audit_log_query():
+    today = datetime.utcnow().date()
+    raw_start_date = request.args.get(
+        "start_date", (today - timedelta(days=30)).isoformat()
+    )
+    raw_end_date = request.args.get("end_date", today.isoformat())
+    try:
+        start_date = datetime.strptime(raw_start_date, "%Y-%m-%d").date()
+        end_date = datetime.strptime(raw_end_date, "%Y-%m-%d").date()
+    except ValueError as error:
+        abort(400, description="Enter valid start and end dates.")
+    if start_date > end_date:
+        abort(400, description="Start date must be on or before end date.")
+
+    staff_id = request.args.get("staff_id", "").strip()
+    staff_id_value = None
+    if staff_id:
+        if not staff_id.isdecimal() or len(staff_id) > 10:
+            abort(400, description="Select a valid staff member.")
+        staff_id_value = int(staff_id)
+        if not User.query.filter_by(id=staff_id_value).first():
+            abort(400, description="Select a valid staff member.")
+
+    action = request.args.get("action", "").strip()
+    if action and action not in {
+        row[0] for row in db.session.query(AuditLog.action).distinct().all()
+    }:
+        abort(400, description="Select a valid audit action.")
+
+    search = request.args.get("q", "").strip()[:100]
+    start_at = datetime.combine(start_date, datetime.min.time())
+    end_at = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+    query = AuditLog.query.filter(
+        AuditLog.created_at >= start_at,
+        AuditLog.created_at < end_at,
+    )
+    if staff_id:
+        query = query.filter(AuditLog.actor_user_id == staff_id_value)
+    if action:
+        query = query.filter(AuditLog.action == action)
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                AuditLog.action.ilike(pattern),
+                AuditLog.target_type.ilike(pattern),
+                AuditLog.target_id.ilike(pattern),
+                AuditLog.details.ilike(pattern),
+            )
+        )
+
+    filters = {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "staff_id": staff_id,
+        "action": action,
+        "q": search,
+    }
+    return query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()), filters
+
+
+@app.route("/admin/audit-log")
+@login_required(roles="admin")
+def audit_log():
+    query, filters = get_audit_log_query()
+    raw_page = request.args.get("page", "1")
+    if not raw_page.isdecimal():
+        abort(400, description="Page number must be positive.")
+    page = int(raw_page)
+    if page < 1:
+        abort(400, description="Page number must be positive.")
+    entries = query.paginate(page=page, per_page=100, error_out=False)
+    staff = User.query.order_by(User.full_name, User.username).all()
+    actions = [
+        row[0]
+        for row in db.session.query(AuditLog.action).distinct().order_by(AuditLog.action).all()
+    ]
+    return render_template(
+        "audit_log.html",
+        entries=entries,
+        staff=staff,
+        actions=actions,
+        filters=filters,
+    )
+
+
+@app.route("/admin/audit-log/export.csv")
+@login_required(roles="admin")
+def audit_log_export():
+    query, filters = get_audit_log_query()
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(
+        ["Timestamp (UTC)", "Staff username", "Staff name", "Action", "Record type", "Record ID", "Details"]
+    )
+    entries = query.all()
+    for entry in entries:
+        values = [
+            entry.created_at.strftime("%Y-%m-%d %H:%M:%S") if entry.created_at else "",
+            entry.actor.username if entry.actor else "Unknown",
+            entry.actor.full_name if entry.actor and entry.actor.full_name else "",
+            entry.action,
+            entry.target_type,
+            entry.target_id,
+            entry.details or "",
+        ]
+        writer.writerow(
+            [
+                f"'{value}" if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t", "\r")) else value
+                for value in values
+            ]
+        )
+    filename = f"audit-log-{filters['start_date']}-to-{filters['end_date']}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.route("/reports/moh")
 @login_required(roles={"admin", "records", "doctor"})
 def moh_reports():

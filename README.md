@@ -37,7 +37,9 @@
 - State-changing requests use CSRF tokens.
 - Staff roles are enforced server-side.
 - Queue claims use the authenticated doctor's account.
-- Patient and clinical changes are written to an audit log.
+- Selected patient, clinical, billing, and workflow actions are recorded in the audit log. Coverage is not comprehensive.
+- Admins can review and filter audit entries in the Audit Log page, print the current results, or export the filtered results as CSV. Times are shown in UTC.
+- Audit entries capture action metadata, not before-and-after record snapshots, and are not tamper-proof; do not treat them as a complete compliance audit without additional controls.
 
 ## Scheduling workflows
 

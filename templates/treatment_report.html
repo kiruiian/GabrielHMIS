@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Treatment Report — {{ patient.full_name }}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      max-width: 850px;
+      margin: 0 auto;
+      padding: 24px;
+      color: #1f2937;
+      font: 14px/1.5 Arial, Helvetica, sans-serif;
+    }
+    header { text-align: center; border-bottom: 2px solid #0d5ec9; padding-bottom: 16px; margin-bottom: 20px; }
+    header img { max-width: 100%; max-height: 90px; }
+    h1 { color: #0a3e92; font-size: 22px; margin: 12px 0 0; }
+    h2 { color: #0a3e92; font-size: 15px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; margin: 20px 0 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 7px 9px; border: 1px solid #dbe2ea; text-align: left; vertical-align: top; }
+    th { width: 22%; background: #f1f5f9; }
+    .section-content { white-space: pre-wrap; }
+    .note, .prescription { border: 1px solid #dbe2ea; border-radius: 4px; padding: 10px; margin: 8px 0; }
+    .muted { color: #64748b; font-size: 12px; }
+    .actions { display: flex; gap: 8px; margin-bottom: 20px; }
+    button, a { padding: 8px 14px; border: 1px solid #94a3b8; border-radius: 5px; background: white; color: #1f2937; text-decoration: none; cursor: pointer; }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="actions no-print">
+    <button type="button" onclick="window.print()">Print treatment report</button>
+    <a href="{{ url_for('patient_card', national_id=patient.national_id) }}">Back to patient card</a>
+  </div>
+
+  <header>
+    <img src="{{ url_for('static', filename='images/letterhead.png') }}" alt="St Gabriel Hospital">
+    <h1>TREATMENT REPORT</h1>
+  </header>
+
+  <table>
+    <tr>
+      <th>Patient</th><td>{{ patient.full_name }}</td>
+      <th>National ID</th><td>{{ patient.national_id }}</td>
+    </tr>
+    <tr>
+      <th>Age / Gender</th><td>{{ patient.age if patient.age is not none else '—' }} / {{ patient.gender or '—' }}</td>
+      <th>Visit type</th><td>{{ visit.visit_type or 'Visit' }}</td>
+    </tr>
+    <tr>
+      <th>Visit date / time</th><td>{{ visit.started_at.strftime('%d %b %Y %H:%M') if visit.started_at else '—' }}</td>
+      <th>Status</th><td>{{ (visit.status or '—')|replace('_', ' ')|title }}</td>
+    </tr>
+  </table>
+
+  <h2>Clinical notes</h2>
+  {% if notes %}
+    {% for note in notes %}
+    <div class="note">
+      <div class="muted">{{ note.timestamp.strftime('%d %b %Y %H:%M') if note.timestamp else '—' }} · {{ note.doctor or 'Clinician not recorded' }}</div>
+      <div class="section-content">{{ note.note_plain }}</div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="section-content">No clinical notes recorded for this visit.</div>
+  {% endif %}
+
+  <h2>Diagnosis</h2>
+  {% if diagnoses %}
+    <table>
+      <thead><tr><th>ICD code</th><th>Diagnosis</th><th>Recorded by</th><th>Date</th></tr></thead>
+      <tbody>
+        {% for diagnosis in diagnoses %}
+        <tr>
+          <td>{{ diagnosis.icd_code }}</td>
+          <td>{{ diagnosis.diagnosis_text }}</td>
+          <td>{{ diagnosis.diagnosed_by or '—' }}</td>
+          <td>{{ diagnosis.diagnosed_at.strftime('%d %b %Y %H:%M') if diagnosis.diagnosed_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="section-content">No diagnosis recorded for this visit.</div>
+  {% endif %}
+
+  <h2>Prescriptions</h2>
+  {% if prescriptions %}
+    {% for prescription in prescriptions %}
+    <div class="prescription">
+      <strong>{{ prescription.medication }}</strong>{% if prescription.strength %} — {{ prescription.strength }}{% endif %}
+      <div>{{ prescription.dosage }} · {{ prescription.route or 'Route not recorded' }} · {{ prescription.frequency }} {{ prescription.frequency_unit or '' }} · {{ prescription.duration }}</div>
+      {% if prescription.quantity %}<div>Quantity: {{ prescription.quantity }}</div>{% endif %}
+      {% if prescription.indication %}<div>Indication: {{ prescription.indication }}</div>{% endif %}
+      {% if prescription.instructions %}<div class="section-content">Instructions: {{ prescription.instructions }}</div>{% endif %}
+      <div class="muted">Prescribed by {{ prescription.prescribed_by }} on {{ prescription.prescribed_at.strftime('%d %b %Y %H:%M') if prescription.prescribed_at else '—' }} · Status: {{ prescription.status or '—' }}</div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="section-content">No prescriptions recorded for this visit.</div>
+  {% endif %}
+
+  <div style="display: flex; gap: 36px; margin-top: 42px;">
+    <div style="flex: 1; border-top: 1px solid #475569; padding-top: 6px;">Clinician name and signature</div>
+    <div style="flex: 1; border-top: 1px solid #475569; padding-top: 6px;">Date</div>
+  </div>
+</body>
+</html>

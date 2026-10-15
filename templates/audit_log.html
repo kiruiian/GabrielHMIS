@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+
+{% block title %}Audit Log | St Gabriel Hospital{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+  <div>
+    <h3 class="mb-1">Audit Log</h3>
+    <p class="text-muted mb-0">Review recorded user actions and the records they affected. Times are UTC.</p>
+  </div>
+  <div class="d-flex gap-2 d-print-none">
+    <a class="btn btn-outline-success" href="{{ url_for('audit_log_export', **filters) }}">Export CSV</a>
+    <button class="btn btn-outline-primary" type="button" onclick="window.print()">Print</button>
+  </div>
+</div>
+
+<form method="get" class="card card-body mb-4 d-print-none">
+  <div class="row g-3 align-items-end">
+    <div class="col-sm-6 col-lg-2">
+      <label class="form-label" for="start-date">From</label>
+      <input class="form-control" id="start-date" type="date" name="start_date" value="{{ filters.start_date }}" required>
+    </div>
+    <div class="col-sm-6 col-lg-2">
+      <label class="form-label" for="end-date">To</label>
+      <input class="form-control" id="end-date" type="date" name="end_date" value="{{ filters.end_date }}" required>
+    </div>
+    <div class="col-sm-6 col-lg-2">
+      <label class="form-label" for="staff-id">Staff</label>
+      <select class="form-select" id="staff-id" name="staff_id">
+        <option value="">All staff</option>
+        {% for user in staff %}
+        <option value="{{ user.id }}" {% if filters.staff_id == user.id|string %}selected{% endif %}>
+          {{ user.full_name or user.username }} ({{ user.username }})
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-6 col-lg-2">
+      <label class="form-label" for="action">Action</label>
+      <select class="form-select" id="action" name="action">
+        <option value="">All actions</option>
+        {% for audit_action in actions %}
+        <option value="{{ audit_action }}" {% if filters.action == audit_action %}selected{% endif %}>{{ audit_action|replace('_', ' ')|title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-sm-8 col-lg-3">
+      <label class="form-label" for="search">Record / details search</label>
+      <input class="form-control" id="search" type="search" name="q" value="{{ filters.q }}" maxlength="100" placeholder="Action, record type, ID, details">
+    </div>
+    <div class="col-sm-4 col-lg-1 d-grid">
+      <button class="btn btn-primary" type="submit">Filter</button>
+    </div>
+  </div>
+</form>
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <span class="text-muted small">{{ entries.total }} matching entries</span>
+  <span class="text-muted small">Page {{ entries.page }} of {{ entries.pages or 1 }}</span>
+</div>
+
+<div class="table-responsive">
+  <table class="table table-sm table-striped table-bordered align-middle">
+    <thead>
+      <tr>
+        <th>Timestamp (UTC)</th>
+        <th>Staff</th>
+        <th>Action</th>
+        <th>Record</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries.items %}
+      <tr>
+        <td class="text-nowrap">{{ entry.created_at.strftime('%Y-%m-%d %H:%M:%S') if entry.created_at else '—' }}</td>
+        <td>
+          {% if entry.actor %}
+          {{ entry.actor.full_name or entry.actor.username }}<div class="text-muted small">{{ entry.actor.username }}</div>
+          {% else %}
+          Unknown / deleted user
+          {% endif %}
+        </td>
+        <td>{{ entry.action|replace('_', ' ')|title }}</td>
+        <td>{{ entry.target_type }} #{{ entry.target_id }}</td>
+        <td class="audit-details">{{ entry.details or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-center text-muted py-4">No audit entries match these filters.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if entries.pages > 1 %}
+<nav aria-label="Audit log pages" class="d-print-none">
+  <ul class="pagination justify-content-center">
+    <li class="page-item {% if not entries.has_prev %}disabled{% endif %}">
+      {% if entries.has_prev %}
+      <a class="page-link" href="{{ url_for('audit_log', page=entries.prev_num, **filters) }}">Previous</a>
+      {% else %}
+      <span class="page-link">Previous</span>
+      {% endif %}
+    </li>
+    <li class="page-item {% if not entries.has_next %}disabled{% endif %}">
+      {% if entries.has_next %}
+      <a class="page-link" href="{{ url_for('audit_log', page=entries.next_num, **filters) }}">Next</a>
+      {% else %}
+      <span class="page-link">Next</span>
+      {% endif %}
+    </li>
+  </ul>
+</nav>
+{% endif %}
+
+<style>
+  @media print {
+    @page { size: landscape; margin: 12mm; }
+    body { font-size: 10pt; }
+    .navbar, main > .alert { display: none !important; }
+    main.container { max-width: none !important; }
+    .audit-details { overflow-wrap: anywhere; }
+  }
+</style>
+{% endblock %}
