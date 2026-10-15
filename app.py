@@ -1353,8 +1353,20 @@ def login():
             session["username"] = user.username
             session["role"] = user.role
             session["full_name"] = user.full_name
+            audit("login_success", "user", user.id, f"role={user.role}")
+            db.session.commit()
             flash(f"Welcome, {user.full_name}!", "success")
             return redirect(url_for("dashboard"))
+        db.session.add(
+            AuditLog(
+                actor_user_id=None,
+                action="login_failed",
+                target_type="username",
+                target_id=username[:80] or "(blank)",
+                details="Invalid credentials",
+            )
+        )
+        db.session.commit()
         flash("Invalid username or password", "danger")
     return render_template("login.html")
 
@@ -1362,6 +1374,8 @@ def login():
 @app.route("/logout", methods=["POST"])
 @login_required()
 def logout():
+    audit("logout", "user", session["user_id"])
+    db.session.commit()
     session.clear()
     flash("You have been logged out.", "info")
     return redirect(url_for("login"))
