@@ -7,17 +7,17 @@
     .invoice-header { display: flex; justify-content: space-between; gap: 2rem; padding: 1.25rem 1.5rem 0.8rem; border-bottom: 3px solid #64748b; }
     .invoice-brand { display: flex; align-items: center; gap: 0.75rem; }
     .invoice-brand img { width: 52px; height: 52px; object-fit: contain; }
-    .invoice-brand h1 { margin: 0; font-size: 1.35rem; color: #0a3e92; }
+    .invoice-brand h1 { margin: 0; font-size: 1.00rem; color: #0a3e92; }
     .invoice-brand p { margin: 0.2rem 0 0; color: #64748b; font-size: 0.85rem; }
     .invoice-title { text-align: right; }
-    .invoice-title h2 { margin: 0; color: #111827; font-size: 1.7rem; }
+    .invoice-title h2 { margin: 0; color: #111827; font-size: 1.3rem; }
     .invoice-title p { margin: 0.35rem 0 0; color: #475569; font-weight: 600; }
     .invoice-body { padding: 1rem 1.5rem 1.5rem; }
     .invoice-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; padding: 0.75rem 0; border-bottom: 1px solid #94a3b8; }
     .invoice-panel { padding: 0; border: 0; border-radius: 0; }
     .invoice-panel h3 { display: none; }
     .invoice-panel dl { margin: 0; }
-    .invoice-panel dt { color: #64748b; font-size: 0.85rem; }
+    .invoice-panel dt { color: #64748b; font-size: 0.05rem; }
     .invoice-panel dd { margin-bottom: 0.35rem; font-weight: 600; color: #1e293b; }
     .invoice-table { width: 100%; border-collapse: collapse; margin-bottom: 1.25rem; }
     .invoice-table th, .invoice-table td { padding: 0.8rem 0.75rem; border-bottom: 1px solid #e2e8f0; }
@@ -28,14 +28,14 @@
     .invoice-total { display: flex; justify-content: flex-end; }
     .invoice-total-box { min-width: 280px; padding: 0.8rem 1.25rem; background: #f8fafc; border: 1px solid #94a3b8; }
     .invoice-total-box span { color: #475569; }
-    .invoice-total-box strong { float: right; color: #0a3e92; font-size: 1.25rem; }
+    .invoice-total-box strong { float: right; color: #0a3e92; font-size: 1.00rem; }
     .invoice-summary { width: 360px; max-width: 100%; margin-top: 1.25rem; border: 1px solid #64748b; }
     .invoice-summary-row { display: flex; justify-content: space-between; padding: 0.35rem 0.65rem; border-bottom: 1px solid #cbd5e1; font-size: 0.85rem; }
     .invoice-summary-row:last-child { border-bottom: 0; font-weight: 700; }
     .payment-panel { max-width: 520px; margin-top: 1.25rem; padding: 1rem; border: 1px solid #cbd5e1; background: #f8fafc; }
     .payment-history { margin-top: 1rem; font-size: 0.85rem; }
-    .payment-status { display: inline-block; margin-bottom: 1rem; padding: 0.35rem 0.7rem; border: 1px solid #94a3b8; font-size: 0.8rem; font-weight: 700; }
-    .invoice-footer { display: flex; justify-content: space-between; gap: 2rem; padding: 1.25rem 1.5rem 1.5rem; color: #475569; font-size: 0.8rem; border-top: 1px solid #94a3b8; }
+    .payment-status { display: inline-block; margin-bottom: 1rem; padding: 0.35rem 0.7rem; border: 1px solid #94a3b8; font-size: 0.5rem; font-weight: 700; }
+    .invoice-footer { display: flex; justify-content: space-between; gap: 2rem; padding: 1.25rem 1.5rem 1.5rem; color: #475569; font-size: 0.5rem; border-top: 1px solid #94a3b8; }
     @media (max-width: 640px) {
       .invoice-header, .invoice-toolbar { align-items: flex-start; flex-direction: column; }
       .invoice-title { text-align: left; }
@@ -44,15 +44,65 @@
       .invoice-footer { padding: 1rem 1.25rem; }
     }
     @media print {
-      @page { size: A4; margin: 12mm; }
-      body { background: #fff !important; color: #111827; }
-      body::before, nav, .invoice-toolbar, .alert { display: none !important; }
-      .container { max-width: none !important; padding: 0 !important; }
-      .invoice-sheet { max-width: none; border: 0; border-radius: 0; box-shadow: none; }
-      .invoice-header { padding: 0 0 1rem; }
-      .invoice-body { padding: 1.25rem 0; }
-      .invoice-footer { padding: 1rem 0 0; }
-    }
+  body {
+    margin: 0;
+    padding: 0;
+    font-size: 11px;
+    background: #fff;
+  }
+
+  .invoice-sheet {
+    max-width: none;
+    margin: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  .invoice-header,
+  .invoice-body,
+  .invoice-footer {
+    padding: 0.5rem 0.75rem !important;
+  }
+
+  .invoice-parties {
+    margin-bottom: 0.6rem;
+    padding: 0.4rem 0;
+  }
+
+  table {
+    font-size: 10.5px;
+  }
+
+  h2, h3, h5 {
+    margin: 0.4rem 0;
+    font-size: 1.15rem;
+  }
+
+  /* Hide on-screen only elements */
+  .d-print-none {
+    display: none !important;
+  }
+
+  /* Avoid breaking tables and sections badly */
+  table, tr, td, th {
+    page-break-inside: avoid;
+  }
+
+  .invoice-section {
+    page-break-inside: avoid;
+    margin-bottom: 0.8rem;
+  }
+
+  /* Repeat table headers on new pages */
+  thead {
+    display: table-header-group;
+  }
+
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
   </style>
 
   <div class="invoice-toolbar">
@@ -183,6 +233,36 @@
             <td>{{ '%.2f'|format(pharmacy_total or 0) }}</td>
           </tr>
 
+          {# ===== Procedures ===== #}
+          {% if procedure_charges %}
+<section class="invoice-section">
+  <h3>Procedures / Services</h3>
+  <table class="table table-sm">
+    <thead>
+      <tr>
+        <th>Procedure Name</th>
+        <th class="text-end">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in procedure_charges %}
+      <tr>
+        <td>{{ p.description }}</td>
+        <td class="text-end">{{ '%.2f'|format(p.amount) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <th>Procedures total</th>
+        <th class="text-end">{{ '%.2f'|format(procedure_total) }}</th>
+      </tr>
+    </tfoot>
+  </table>
+</section>
+{% endif %}s
+
+
           {# ===== Inpatient ===== #}
           <tr class="section-row"><td colspan="4">Inpatient</td></tr>
           {% if inpatient_admissions %}
@@ -279,7 +359,7 @@
 {% endif %}
 
       {% if session.get('role') in ['accounts', 'admin'] %}
-      <section class="payment-panel">
+      <section class="payment-panel d-print-none">
         <h5 class="mb-3">Record payment</h5>
         <form method="post" action="{{ url_for('record_invoice_payment', visit_id=visit.id) }}" class="row g-2">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -396,6 +396,9 @@
                                     <button type="button" class="btn btn-outline-success btn-sm" id="showPrescriptionForm">Prescribe Medication </button>
                                     <button type="button" class="btn btn-outline-info btn-sm" id="showRadiologyForm">Send to Radiology</button>
                                     <button type="button" class="btn btn-outline-warning btn-sm service-request-button" data-service="Referral">Send Referral</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" id="showProcedureForm">
+  Add procedure
+</button>
                                 </div>
                             </div>
                             {% endif %}
@@ -506,6 +509,26 @@
                         {% endif %}
                     </div>
                 </div>
+
+                <!-- Add Procedure -->
+<div class="card mb-3" id="procedureForm" hidden>
+  <div class="card-header"><strong>Add procedure / service</strong></div>
+  <div class="card-body">
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="add_procedure">
+      <div class="mb-2">
+        <label class="form-label">Description</label>
+        <input type="text" name="description" class="form-control" placeholder="e.g. Suturing, Dressing, Nebulisation" required>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Amount (KES)</label>
+        <input type="number" name="amount" class="form-control" min="1" step="0.01" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Add to visit</button>
+    </form>
+  </div>
+</div>
 
                 <h5>Previous notes</h5>
                 {% if notes %}
@@ -689,6 +712,8 @@
                 if (referralRequestForm) referralRequestForm.hidden = true;
                 if (radiologyRequestForm) radiologyRequestForm.hidden = true;
                 if (prescriptionForm) prescriptionForm.hidden = true;
+                const procedureForm = document.getElementById('procedureForm');
+                if (procedureForm) procedureForm.hidden = true;
             }
 
             document.getElementById('showPrescriptionForm')?.addEventListener('click', () => {
@@ -703,6 +728,15 @@
                 if (radiologyRequestForm) {
                     radiologyRequestForm.hidden = false;
                     radiologyRequestForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
+
+            document.getElementById('showProcedureForm')?.addEventListener('click', () => {
+                hideServiceForms();
+                const form = document.getElementById('procedureForm');
+                if (form) {
+                    form.hidden = false;
+                    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
             });
 

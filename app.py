@@ -885,6 +885,18 @@ class ImagingImage(db.Model):
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
     uploaded_by = db.Column(db.String(100))
 
+class ProcedureCharge(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    visit_id = db.Column(db.Integer, db.ForeignKey("visit.id"), nullable=False)
+    patient_id = db.Column(db.Integer, db.ForeignKey("patient.id"), nullable=False)
+    description = db.Column(db.String(200), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    recorded_by = db.Column(db.String(100))
+    recorded_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    visit = db.relationship("Visit", backref=db.backref("procedure_charges", lazy=True))
+    patient = db.relationship("Patient")
+
 class Ward(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), unique=True, nullable=False)
@@ -948,6 +960,23 @@ class WardNote(db.Model):
 
     admission = db.relationship("Admission", backref=db.backref("ward_notes", lazy=True))
     patient = db.relationship("Patient", backref=db.backref("ward_notes", lazy=True))
+
+def next_invoice_number():
+    """Generate the next invoice number in the form INV-000001, INV-000002, …"""
+    last = (
+        Visit.query
+        .filter(Visit.invoice_number.isnot(None), Visit.invoice_number != "")
+        .order_by(Visit.id.desc())
+        .first()
+    )
+    if last and last.invoice_number and last.invoice_number.startswith("INV-"):
+        try:
+            n = int(last.invoice_number.split("-")[1])
+        except (IndexError, ValueError):
+            n = 0
+    else:
+        n = 0
+    return f"INV-{n + 1:06d}"
 
 #routes
 # AUTHentication
@@ -2041,6 +2070,50 @@ def patient_card(national_id):
             db.session.commit()
             flash("Follow-up status updated.", "success")
             return redirect(url_for("patient_card", national_id=national_id))
+
+        elif action == "add_procedure":
+            if user_role not in SERVICE_REQUEST_ROLES and user_role != "admin":
+                flash("Only authorized staff can add procedures.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            description = request.form.get("description", "").strip()
+            try:
+                amount = float(request.form.get("amount", "0").strip())
+            except (TypeError, ValueError):
+                amount = 0
+
+            if not description or amount <= 0:
+                flash("Enter a procedure description and an amount greater than zero.", "danger")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            active_visit = (
+                Visit.query.filter(
+                    Visit.patient_id == patient.id,
+                    db.or_(Visit.status != "completed", Visit.status.is_(None)),
+                )
+                .order_by(Visit.started_at.desc())
+                .first()
+            )
+            if not active_visit:
+                flash("No active visit found.", "warning")
+                return redirect(url_for("patient_card", national_id=national_id))
+
+            proc = ProcedureCharge(
+                visit_id=active_visit.id,
+                patient_id=patient.id,
+                description=description[:200],
+                amount=amount,
+                recorded_by=session.get("full_name", session.get("username", "Staff")),
+            )
+            db.session.add(proc)
+            db.session.flush()
+            audit(
+                "procedure_added",
+                "procedure_charge",
+                proc.id,
+                f"patient_id={patient.id}; visit_id={active_visit.id}; {description}={amount}",
+            )
+            flash(f"Procedure added: {description} (KES {amount:,.2f})", "success")
 
         else:
             flash("Unknown patient-card action.", "danger")
@@ -3143,7 +3216,7 @@ def appointment_manage(appointment_id):
         appointment.patient.visit_type = "Revisit" if visit_type == "Revisit" else "New Visit"
         db.session.add(visit)
         db.session.flush()
-        visit.invoice_number = f"INV-{visit.id:06d}"
+        visit.invoice_number = next_invoice_number()
         queue = QueueEntry(
             visit_id=visit.id,
             patient_id=appointment.patient_id,
@@ -3769,14 +3842,14 @@ def invoice_detail(visit_id):
         )
    # Radiology charges – also catch studies that were never linked to a visit
     radiology_studies = ImagingStudy.query.filter(
-    db.or_(
-        ImagingStudy.visit_id == visit.id,
-        db.and_(
-            ImagingStudy.patient_id == visit.patient_id,
-            ImagingStudy.visit_id.is_(None),
-        ),
-    )
-).all()
+        db.or_(
+            ImagingStudy.visit_id == visit.id,
+            db.and_(
+                ImagingStudy.patient_id == visit.patient_id,
+                ImagingStudy.visit_id.is_(None),
+            ),
+        )
+    ).all()
 
 # Fill missing prices 
     for s in radiology_studies:
@@ -3788,6 +3861,8 @@ def invoice_detail(visit_id):
     db.session.commit()
 
     radiology_total = sum(float(s.charge_amount or 0) for s in radiology_studies)
+    procedure_charges = ProcedureCharge.query.filter_by(visit_id=visit.id).all()
+    procedure_total = sum(float(p.amount or 0) for p in procedure_charges)
 
     has_pending_pharmacy_charge = (
         Prescription.query.filter(
@@ -3833,6 +3908,7 @@ def invoice_detail(visit_id):
         + lab_subtotal
         + pharmacy_total
         + radiology_total
+        + procedure_total
         + inpatient_total
         if consultation_total is not None and not has_pending_pharmacy_charge
         else None
@@ -3873,6 +3949,8 @@ def invoice_detail(visit_id):
         payment_status=payment_status,
         inpatient_admissions=inpatient_admissions,
         inpatient_total=inpatient_total,
+        procedure_charges=procedure_charges,
+        procedure_total=procedure_total,
     )
 
 
@@ -4546,6 +4624,9 @@ def radiology_study(study_id):
             return redirect(url_for("radiology_study", study_id=study.id))
 
     return render_template("radiology_study.html", study=study, patient=patient)
+
+
+
 
 @app.route("/inpatient")
 @login_required()
@@ -5332,6 +5413,7 @@ with app.app_context():
     db.session.commit()
     print('Wards:', Ward.query.count())
     print('Beds:', Bed.query.count())
+
 if __name__ == "__main__":
     app.run(
         debug=env_flag("FLASK_DEBUG"),
